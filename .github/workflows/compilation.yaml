@@ -1,37 +1,59 @@
-name: compilation
+name: Build
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-22.04, ubuntu-24.04]
         build-type: [Debug, Release]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install cmake gcc build-essential libfftw3-dev libconfig-dev libasound2-dev gfortran texinfo pulseaudio libpulse-dev
+          sudo apt-get install -y cmake gcc g++ build-essential \
+            libfftw3-dev libconfig-dev libasound2-dev \
+            pulseaudio libpulse-dev
 
-      - name: Create build directory
+      # TFLite C library is required but not available in apt.
+      # We provide a stub .so so the linker resolves symbols;
+      # actual inference is not exercised in CI.
+      - name: Create TFLite stub library
         run: |
-          mkdir build
+          echo 'void TfLiteModelCreateFromFile(){}
+                void TfLiteInterpreterCreate(){}
+                void TfLiteInterpreterOptionsCreate(){}
+                void TfLiteInterpreterAllocateTensors(){}
+                void TfLiteInterpreterInvoke(){}
+                void TfLiteInterpreterGetInputTensor(){}
+                void TfLiteInterpreterGetOutputTensor(){}
+                void TfLiteTensorData(){}
+                void TfLiteTensorNumDims(){}
+                void TfLiteTensorDim(){}
+                void TfLiteModelDelete(){}
+                void TfLiteInterpreterDelete(){}
+                void TfLiteInterpreterOptionsDelete(){}' > /tmp/tflite_stub.c
+          gcc -shared -fPIC -o /usr/local/lib/libtensorflowlite_c.so /tmp/tflite_stub.c
+          sudo ldconfig
 
-      - name: Run CMake and build odas
-        working-directory: build
+      - name: Build
         run: |
-          cmake ../ -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_INSTALL_PREFIX=install
-          make -j2
-          make install
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+            -DCMAKE_INSTALL_PREFIX=build/install \
+            -DTFLITE_LIB=/usr/local/lib/libtensorflowlite_c.so
+          cmake --build build -j2
+          cmake --install build
