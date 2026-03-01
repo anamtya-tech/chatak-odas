@@ -58,10 +58,13 @@ wildlife acoustic-monitoring system.
 
 ## Quick start
 
+> **Note:** The GitHub repo for this ODAS fork has not been published yet.
+> Once created, the clone URL will be added here.
+
 ```bash
-# 1. Clone (with submodules)
-git clone --recurse-submodules https://github.com/anamtya-tech/yamnet.git
-cd yamnet
+# 1. Clone (with submodules) — replace URL once repo is published
+git clone --recurse-submodules https://github.com/anamtya-tech/<ODAS-REPO-NAME>.git
+cd <ODAS-REPO-NAME>
 
 # 2. Install build dependencies (Debian/Ubuntu)
 sudo apt install -y cmake libfftw3-dev libconfig-dev libasound2-dev
@@ -97,6 +100,28 @@ Microphone (6-ch, 16 kHz)
 Full design notes: [docs/event_pipeline.md](docs/event_pipeline.md)
 
 ---
+
+## Related repos
+
+| Repo | Purpose |
+|------|---------|
+| [anamtya-tech/yamnet](https://github.com/anamtya-tech/yamnet) | YAMNet model training, export, standalone C++ reference implementation |
+| [anamtya-tech/simulator](https://github.com/anamtya-tech/simulator) | Python Streamlit pipeline — scene rendering, ODAS analysis, dataset curation |
+| [DaveGamble/cJSON](https://github.com/DaveGamble/cJSON) | JSON library (submodule at `third_party/cJSON`) |
+| [introlab/odas](https://github.com/introlab/odas) | Upstream ODAS (MIT) — preserved as `upstream` remote |
+
+### `src/yamnet/` — relationship to `anamtya-tech/yamnet`
+
+The C++ wrapper in `src/yamnet/` originated from `yamnet/integration/` but has
+evolved independently for ODAS embedding:
+- Uses **TFLite C API** (`TfLiteInterpreterCreate`) rather than the C++ API — better portability on embedded targets
+- Adds **TopK inference** (`ClassifyPatchTopK`) for the top-K voting pipeline
+- Include path scoped to `"yamnet/yamnet_classifier.h"`
+
+To sync the model file from the yamnet repo:
+```bash
+cp ~/yamnet/integration/yamnet_core.tflite models/yamnet_core.tflite
+```
 
 ## Upstream
 
