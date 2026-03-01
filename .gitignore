@@ -1,5 +1,34 @@
-.vscode
+# Editor / IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# ── Runtime data (never commit) ──────────────────────────────────────────────
+# Raw audio captures and live session recordings
 *.raw
+liveSession_*/
+
+# ODAS classifier output (generated at runtime)
+ClassifierLogs/
+*.bin
+
+# ── Model weights ─────────────────────────────────────────────────────────────
+# yamnet_core.tflite is 14 MB — tracked via Git LFS (see .gitattributes) OR
+# downloaded by scripts/download_models.sh.
+# Uncomment the next line if you are NOT using Git LFS:
+# models/*.tflite
+
+# ── Backup / scratch directories ─────────────────────────────────────────────
+backup_*/
+*_backup_*/
+
+# ── Debug artefacts ───────────────────────────────────────────────────────────
+build/debug_crash.sh
+build/run_gdb.sh
+build/gdb_commands.txt
+build/postfiltered.raw
+build/seperated.raw
+
 # Prerequisites
 *.d
 
