@@ -1,29 +1,6 @@
 
    /**
     * \file     mod_resample.c
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     *
     */
 
@@ -37,6 +14,10 @@
 
         obj->timeStamp = 0;
         obj->noMorePush = 0;
+        
+        obj->recordEnabled = mod_resample_config->recordEnabled;
+        strcpy(obj->bandpassPath, mod_resample_config->bandpassPath); 
+        strcpy(obj->audioRecordPath, mod_resample_config->audioRecordPath);       
 
         if (mod_resample_config->fSin == mod_resample_config->fSout) {
             obj->type = 's';
@@ -54,6 +35,9 @@
         obj->hopSizeIn = msg_hops_in_config->hopSize;
         obj->hopSizeOut = msg_hops_out_config->hopSize;
         obj->ratio = ((double) obj->fSout) / ((double) obj->fSin);
+        obj->lastBandpassUpdateTime = 0;
+
+    
 
         switch (obj->type) {
 
@@ -61,6 +45,17 @@
 
                 obj->frameSize = obj->hopSizeIn * 2;
                 obj->halfFrameSize = obj->frameSize / 2 + 1;
+                
+                obj->lowHz = 20;     // or 300 if you want a tighter band
+                obj->highHz = 20000; // or 3000 for speech
+
+                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
+                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
+                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                
+                obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
+                obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
+                
                 obj->lowPassCut = (unsigned int) floor(((double) (obj->frameSize/2)) * obj->ratio);
 
                 obj->hop2hop = hop2hop_buffer_construct_zero(obj->nChannels, obj->hopSizeIn, obj->hopSizeOut, obj->ratio);
@@ -82,6 +77,17 @@
 
                 obj->frameSize = obj->hopSizeOut * 2;
                 obj->halfFrameSize = obj->frameSize / 2 + 1;
+            
+                obj->lowHz = 20;     // or 300 if you want a tighter band
+                obj->highHz = 20000; // or 3000 for speech
+
+                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
+                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
+                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                
+                obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
+                obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
+                
                 obj->lowPassCut = (unsigned int) floor(((double) (obj->frameSize/2)) / obj->ratio);
 
                 obj->hop2hop = hop2hop_buffer_construct_zero(obj->nChannels, obj->hopSizeIn, obj->hopSizeOut, obj->ratio);
@@ -100,24 +106,37 @@
             break;
 
             case 's':
+                obj->frameSize = obj->hopSizeIn * 2;
+                obj->halfFrameSize = obj->frameSize / 2 + 1;
+                
+                
+                obj->lowHz = 20;     // or 300 if you want a tighter band
+                obj->highHz = 20000; // or 3000 for speech
 
-                obj->frameSize = 0;
-                obj->halfFrameSize = 0;
+                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
+                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
+                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                
+                obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
+                obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
+                
+
                 obj->lowPassCut = 0;
 
                 obj->hop2hop = hop2hop_buffer_construct_zero(obj->nChannels, obj->hopSizeIn, obj->hopSizeOut, obj->ratio);
 
-                obj->hop2frame = (hop2frame_obj *) NULL;
-                obj->framesAnalysis = (frames_obj *) NULL;
-                obj->frame2freq = (frame2freq_obj *) NULL;
-                obj->freqsAnalysis = (freqs_obj *) NULL;
-                obj->freq2freq_lowpass = (freq2freq_lowpass_obj *) NULL;
-                obj->freqsSynthesis = (freqs_obj *) NULL;
-                obj->freq2frame = (freq2frame_obj *) NULL;
-                obj->framesSynthesis = (frames_obj *) NULL;
-                obj->frame2hop = (frame2hop_obj *) NULL;
-                obj->hops = (hops_obj *) NULL;
+                obj->hop2frame = hop2frame_construct_zero(obj->hopSizeIn, obj->frameSize, obj->nChannels);
+                obj->framesAnalysis = frames_construct_zero(obj->nChannels, obj->frameSize);
+                obj->frame2freq = frame2freq_construct_zero(obj->frameSize, obj->halfFrameSize);
+                obj->freqsAnalysis = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
 
+                obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
+                obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
+
+                obj->freq2frame = freq2frame_construct_zero(obj->frameSize, obj->halfFrameSize);
+                obj->framesSynthesis = frames_construct_zero(obj->nChannels, obj->frameSize);
+                obj->frame2hop = frame2hop_construct_zero(obj->hopSizeIn, obj->frameSize, obj->nChannels);
+                obj->hops = hops_construct_zero(obj->nChannels, obj->hopSizeIn);
             break;
 
         }
@@ -176,6 +195,15 @@
         if (obj->hops != NULL) {
             hops_destroy(obj->hops);
         }
+        
+        if (obj->freq2freq_bandpass != NULL) {
+            freq2freq_bandpass_destroy(obj->freq2freq_bandpass);
+        }
+
+        if (obj->freqsBandPass != NULL) {
+            freqs_destroy(obj->freqsBandPass);
+        }
+
 
         free((void *) obj);
 
@@ -242,6 +270,15 @@
     }
 
     int mod_resample_process_push_down(mod_resample_obj * obj) {
+        
+        time_t modTime = get_file_mod_time(obj->bandpassPath);
+        if (modTime > obj->lastBandpassUpdateTime) {
+            if (mod_resample_reload_bandpass(obj, obj->bandpassPath) == 0) {
+                obj->lastBandpassUpdateTime = modTime;
+                printf("push down:Bandpass updated: %u Hz\n", obj->lowHz, obj->highHz);
+            }
+        }
+
 
         int rtnValue;
 
@@ -258,13 +295,18 @@
                     frame2freq_process(obj->frame2freq,
                                        obj->framesAnalysis,
                                        obj->freqsAnalysis);
-
+/*
                     freq2freq_lowpass_process(obj->freq2freq_lowpass,
                                               obj->freqsAnalysis,
                                               obj->freqsSynthesis);
+*/                                              
+                    freq2freq_bandpass_process(obj->freq2freq_bandpass, 
+                                               obj->freqsAnalysis,
+                                               obj->freqsBandPass);
+
 
                     freq2frame_process(obj->freq2frame,
-                                       obj->freqsSynthesis,
+                                       obj->freqsBandPass,
                                        obj->framesSynthesis);
 
                     frame2hop_process(obj->frame2hop,
@@ -298,6 +340,15 @@
     }
 
     int mod_resample_process_push_up(mod_resample_obj * obj) {
+        
+        
+        time_t modTime = get_file_mod_time(obj->bandpassPath);
+        if (modTime > obj->lastBandpassUpdateTime) {
+            if (mod_resample_reload_bandpass(obj,obj->bandpassPath) == 0) {
+                obj->lastBandpassUpdateTime = modTime;
+                printf("push up:Bandpass updated: %u-%u Hz\n", obj->lowHz, obj->highHz);
+            }
+        }
 
         int rtnValue;
 
@@ -307,8 +358,16 @@
 
                 if (obj->enabled == 1) {
 
-                    hop2hop_buffer_push(obj->hop2hop,
-                                        obj->in->hops);
+            hop2frame_process(obj->hop2frame, obj->in->hops, obj->framesAnalysis);
+            frame2freq_process(obj->frame2freq, obj->framesAnalysis, obj->freqsAnalysis);
+            freq2freq_bandpass_process(obj->freq2freq_bandpass, obj->freqsAnalysis, obj->freqsBandPass);
+            freq2frame_process(obj->freq2frame, obj->freqsBandPass, obj->framesSynthesis);
+
+            frame2hop_process(obj->frame2hop, obj->framesSynthesis, obj->hops);
+            
+            
+            hop2hop_buffer_push(obj->hop2hop, obj->hops);
+
 
                 }
 
@@ -334,19 +393,33 @@
     }
 
     int mod_resample_process_push_same(mod_resample_obj * obj) {
+        
+        
+        time_t modTime = get_file_mod_time(obj->bandpassPath);
+        if (modTime > obj->lastBandpassUpdateTime) {
+            if (mod_resample_reload_bandpass(obj, obj->bandpassPath) == 0) {
+                obj->lastBandpassUpdateTime = modTime;
+                printf("push same:Bandpass updated: %u-%u Hz\n", obj->lowHz, obj->highHz);
+            }
+        }
 
         int rtnValue;
 
         if (msg_hops_isZero(obj->in) == 0) {
+            
+
 
             if (hop2hop_buffer_isFull(obj->hop2hop) == 0) {
 
                 if (obj->enabled == 1) {
-
-                    hop2hop_buffer_push(obj->hop2hop,
-                                        obj->in->hops);
-
-                }
+        
+                    hop2frame_process(obj->hop2frame, obj->in->hops, obj->framesAnalysis);
+                    frame2freq_process(obj->frame2freq, obj->framesAnalysis, obj->freqsAnalysis);
+                    freq2freq_bandpass_process(obj->freq2freq_bandpass, obj->freqsAnalysis, obj->freqsBandPass);
+                    freq2frame_process(obj->freq2frame, obj->freqsBandPass, obj->framesSynthesis);
+                    frame2hop_process(obj->frame2hop, obj->framesSynthesis, obj->out->hops);                    
+                    hop2hop_buffer_push(obj->hop2hop, obj->out->hops);
+                
 
                 rtnValue = 0;
 
@@ -356,7 +429,7 @@
                 rtnValue = -1;
 
             }
-
+          }
         }
         else {
 
@@ -366,10 +439,9 @@
         }
 
         return rtnValue;
-
     }
 
-    int mod_resample_process_pop_down(mod_resample_obj * obj) {
+     int mod_resample_process_pop_down(mod_resample_obj * obj) {
 
         int rtnValue;
 
@@ -532,11 +604,17 @@
     mod_resample_cfg * mod_resample_cfg_construct(void) {
 
         mod_resample_cfg * cfg;
-
+        
         cfg = (mod_resample_cfg *) malloc(sizeof(mod_resample_cfg));
+        
+        cfg->recordEnabled = 1;
+        strcpy(cfg->audioRecordPath,"");
+        strcpy(cfg->bandpassPath, "/home/chatak/ChatakGUI/config/bandpass.cfg");
+
 
         cfg->fSin = 0;
         cfg->fSout = 0;
+        cfg->nBits = 0;
 
         return cfg;
 
@@ -554,3 +632,50 @@
         printf("fSout = %u\n", cfg->fSout);
 
     }
+    
+    time_t get_file_mod_time(const char * path) {
+    struct stat st;
+    if (stat(path, &st) == 0) return st.st_mtime;
+    return 0;
+    }
+    
+    int mod_resample_reload_bandpass(mod_resample_obj * obj, const char * path) {
+    FILE * file = fopen(path, "r");
+    if (!file) return -1;
+
+    unsigned int lowHz = obj->lowHz;
+    unsigned int highHz = obj->highHz;
+
+    char line[128];
+    while (fgets(line, sizeof(line), file)) {
+        sscanf(line, "lowHz=%u", &lowHz);
+        sscanf(line, "highHz=%u", &highHz);
+    }
+    fclose(file);
+
+    // Recompute bin indices
+    unsigned int lowCut = (unsigned int)(lowHz * obj->frameSize / obj->fSout);
+    unsigned int highCut = (unsigned int)(highHz * obj->frameSize / obj->fSout);
+    if (highCut > obj->halfFrameSize) highCut = obj->halfFrameSize;
+
+    // Rebuild bandpass object
+    if (obj->freq2freq_bandpass != NULL) {
+        freq2freq_bandpass_destroy(obj->freq2freq_bandpass);
+    }
+    obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, lowCut, highCut);
+
+    obj->lowHz = lowHz;
+    obj->highHz = highHz;
+    obj->lowCut = lowCut;
+    obj->highCut = highCut;
+    
+    obj->lastBandpassUpdateTime = get_file_mod_time(path);
+    
+    printf("\nBandpass updated: %u-%u Hz (%u-%u bins)\n",
+       obj->lowHz, obj->highHz, obj->lowCut, obj->highCut);
+
+    return 0;
+    }
+    
+
+

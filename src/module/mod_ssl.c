@@ -1,31 +1,4 @@
 
-   /**
-    * \file     mod_ssl.c
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    *
-    */
     
     #include <module/mod_ssl.h>
 
@@ -43,6 +16,7 @@
         obj->nPairs = obj->nChannels * (obj->nChannels - 1) / 2;
         obj->nPots = msg_pots_config->nPots;
         obj->nLevels = mod_ssl_config->nLevels;
+        obj->fS = mod_ssl_config->fS;
         obj->frameSize = 2 * (msg_spectra_config->halfFrameSize - 1);
         obj->halfFrameSize = msg_spectra_config->halfFrameSize; 
         obj->frameSizeInterp = obj->frameSize * mod_ssl_config->interpRate;
@@ -111,6 +85,7 @@
         obj->pots = pots_construct_zero(msg_pots_config->nPots);
 
         obj->in = (msg_spectra_obj *) NULL;
+        obj->in1 = (msg_chatak_id_obj*) NULL;
         obj->out = (msg_pots_obj *) NULL;
 
         obj->enabled = 0;
@@ -165,10 +140,15 @@
 
         float maxValue;
         unsigned int maxIndex;
+        
+        int debug = 0;
+        struct timespec t_start, t_end;
+        double t_diff_ms;
 
         if (msg_spectra_isZero(obj->in) == 0) {
 
             if (obj->enabled == 1) {
+                    
 
                 freq2freq_phasor_process(obj->freq2freq_phasor, 
                                          obj->in->freqs, 
@@ -183,11 +163,14 @@
                 freq2freq_interpolate_process(obj->freq2freq_interpolate,
                                               obj->products,
                                               obj->productsInterp);
+                                              
+
 
                 freq2xcorr_process(obj->freq2xcorr, 
                                    obj->productsInterp, 
                                    obj->scans->pairs,
-                                   obj->xcorrs);           
+                                   obj->xcorrs);
+                                   
 
                 for (iPot = 0; iPot < obj->nPots; iPot++) {
                     
@@ -226,7 +209,7 @@
                         for (iPoint = 0; iPoint < obj->aimgs[iLevel]->aimgSize; iPoint++) {
 
                             if (obj->aimgs[iLevel]->array[iPoint] > maxValue) {
-
+       
                         	    maxValue = obj->aimgs[iLevel]->array[iPoint];
                         	    maxIndex = iPoint;
 
@@ -235,16 +218,70 @@
                         }
                        
                     }
+                    
 
                     obj->pots->array[iPot * 4 + 0] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 0];
                     obj->pots->array[iPot * 4 + 1] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 1];
                     obj->pots->array[iPot * 4 + 2] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 2];
                     obj->pots->array[iPot * 4 + 3] = maxValue * ((float) obj->interpRate);
+                  
+                   
+                    float x = obj->pots->array[iPot * 4 + 0];
+                    float y = obj->pots->array[iPot * 4 + 1];
+                    float z = obj->pots->array[iPot * 4 + 2];
 
-                }
-                
+                        xcorr2true_spectrum_at_peak(
+                            obj->fS,
+                            obj->in->freqs->array,                              // [nChannels][frameSize] ? channel-level FFT spectra
+                            obj->scans->tdoas[obj->nLevels - 1]->array,         // [nPoints * nPairs] ? TDOAs per pair at this pot
+                            obj->nPairs,                                        // total mic pairs
+                            obj->nChannels,                                     // total microphones
+                            obj->frameSize,                               // number of frequency bins
+                            maxIndex,                                           // spatial bin index (pot)
+                            obj->pots->spec_at_peak[iPot],                       // output buffer for final spectrum
+                            x,y,z
+                        );
+                        
+                        pots_copy(obj->out->pots, obj->pots);
+
+                        //printf("after xcoor call in ssl");
+                        //pots_printf(obj->pots);
+
+                        unsigned int total_nonzero = 0;
+                        unsigned int nBuckets = 5;
+                        unsigned int bucketSize = obj->frameSizeInterp / nBuckets;
+
+                        //printf("[mod_ssl] spec_at_peak[%u]: frameSizeInterp = %u\n", iPot, obj->frameSizeInterp);
+
+                        for (unsigned int b = 0; b < nBuckets; b++) {
+                            unsigned int start = b * bucketSize;
+                            unsigned int end = start + bucketSize;
+
+                            unsigned int nonzero_count = 0;
+                            float sum = 0.0f;
+
+                            for (unsigned int bin = start; bin < end; bin++) {
+                                float val = obj->pots->spec_at_peak[iPot][bin];
+                                if (fabsf(val) > 1e-6) nonzero_count++;
+                                sum += val;
+                            }
+
+                            float avg = sum / bucketSize;
+                            total_nonzero += nonzero_count;
+
+                            //printf("  Bucket %u [%uG%u]: nonzero=%u, avg=%.4f\n",
+                                   //b, start, end - 1, nonzero_count, avg);
+                        }
+
+                       // printf("  Total nonzero bins: %u / %u\n", total_nonzero, obj->frameSizeInterp);
+
+
+             }
+
+    
                 memcpy(obj->out->pots->array, obj->pots->array, sizeof(float) * obj->pots->nPots * 4);
-
+  
+    
             }
             else {
 
@@ -269,9 +306,10 @@
 
     }
 
-    void mod_ssl_connect(mod_ssl_obj * obj, msg_spectra_obj * in, msg_pots_obj * out) {
+    void mod_ssl_connect(mod_ssl_obj * obj, msg_spectra_obj * in,msg_chatak_id_obj* in1, msg_pots_obj * out) {
 
         obj->in = in;
+        obj->in1 = in1;
         obj->out = out;
 
     }
@@ -279,6 +317,7 @@
     void mod_ssl_disconnect(mod_ssl_obj * obj) {
 
         obj->in = (msg_spectra_obj *) NULL;
+        obj->in1 = (msg_chatak_id_obj *) NULL;
         obj->out = (msg_pots_obj *) NULL;
 
     }
@@ -300,6 +339,8 @@
         mod_ssl_cfg * cfg;
 
         cfg = (mod_ssl_cfg *) malloc(sizeof(mod_ssl_cfg));
+
+        cfg->fS = 0;
 
         cfg->mics = (mics_obj *) NULL;
         cfg->samplerate = (samplerate_obj *) NULL;

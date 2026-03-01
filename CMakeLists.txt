@@ -15,8 +15,11 @@ pkg_check_modules(PC_FFTW3 REQUIRED fftw3f)
 pkg_check_modules(PC_ALSA REQUIRED alsa)
 pkg_check_modules(PC_LIBCONFIG REQUIRED libconfig)
 pkg_check_modules(PC_PULSEAUDIO REQUIRED libpulse-simple)
+pkg_check_modules(PC_JSONC REQUIRED json-c)
+
 
 include_directories("${PROJECT_SOURCE_DIR}/include")
+link_directories(/usr/local/lib)
 
 # Compile in release mode if not set
 if(NOT CMAKE_BUILD_TYPE)
@@ -30,8 +33,16 @@ endif()
 
 #Add base directory for includes (global)
 include_directories(include/odas)
+include_directories(${PC_JSONC_INCLUDE_DIRS})
+link_directories(${PC_JSONC_LIBRARY_DIRS})
+include_directories(/usr/local/include)
+include_directories(/usr/local/include/tensorflow)
+
+
 
 set(SRC
+
+    src/python/python_zodas.c
 
     src/general/format.c
     src/general/interface.c
@@ -41,6 +52,14 @@ set(SRC
     src/general/soundspeed.c
     src/general/spatialfilter.c
     src/general/thread.c
+
+    src/module/mod_chatak.c
+    src/message/msg_chatak_id.c
+    src/connector/con_chatak_id.c
+
+    src/amodule/amod_chatak.c
+    src/amessage/amsg_chatak_id.c
+    src/aconnector/acon_chatak_id.c
 
     src/init/combining.c
     src/init/delay.c
@@ -114,6 +133,7 @@ set(SRC
     src/system/track2steer.c
     src/system/xcorr2aimg.c
     src/system/xcorr2xcorr.c
+    src/system/xcorr2spec.c
 
     src/utils/cmatrix.c
     src/utils/fft.c
@@ -191,8 +211,19 @@ set(SRC
     src/sink/snk_spectra.c
     src/sink/snk_tracks.c
     src/source/src_hops.c
+    src/yamnet/yamnet_classifier.cpp
+    src/yamnet/yamnet_wrapper.cpp
 
 )
+
+# Enable C++ for mixed C/C++ build
+enable_language(CXX)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+
+add_subdirectory(third_party/cJSON)
+
 
 add_library(odas SHARED
     ${SRC}
@@ -203,12 +234,14 @@ target_link_libraries(odas
     ${PC_ALSA_LIBRARIES}
     ${PC_LIBCONFIG_LIBRARIES}
     ${PC_PULSEAUDIO_LIBRARIES}
+    ${PC_JSONC_LIBRARIES}
     m
     pthread
+    tensorflowlite_c
 )
 
 add_executable(odaslive
-    demo/odaslive/main.c
+    demo/odaslive/main.cpp
     demo/odaslive/configs.c
     demo/odaslive/objects.c
     demo/odaslive/parameters.c
@@ -217,14 +250,22 @@ add_executable(odaslive
 )
 target_link_libraries(odaslive
     odas
+    cjson
+    ${PC_JSONC_LIBRARIES}
 )
 
 add_executable(odasserver
-    demo/odasserver/main.c
+    demo/odasserver/main.cpp
 )
 target_link_libraries(odasserver
     odas
 )
+
+target_include_directories(odas PRIVATE third_party/cJSON)
+target_include_directories(odas PRIVATE ${PROJECT_SOURCE_DIR}/include/yamnet)
+target_include_directories(odaslive PRIVATE ${PROJECT_SOURCE_DIR}/include/yamnet)
+
+
 
 if (NOT ODAS_DISABLE_INSTALL)
     install(TARGETS odas LIBRARY DESTINATION lib)

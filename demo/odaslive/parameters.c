@@ -1,6 +1,29 @@
 
     #include "parameters.h"
 
+    /* Optional-int lookup: returns defaultValue when path is absent. */
+    int parameters_lookup_int_default(const char * file, const char * path, int defaultValue) {
+
+        config_t cfg;
+        config_setting_t * setting;
+        int rtnValue;
+
+        config_init(&cfg);
+
+        if (!config_read_file(&cfg, file)) {
+            printf("%s:%d - %s\n", config_error_file(&cfg), config_error_line(&cfg), config_error_text(&cfg));
+            config_destroy(&cfg);
+            exit(EXIT_FAILURE);
+        }
+
+        setting = config_lookup(&cfg, path);
+        rtnValue = (setting != NULL) ? config_setting_get_int(setting) : defaultValue;
+
+        config_destroy(&cfg);
+        return rtnValue;
+
+    }
+
     int parameters_lookup_int(const char * file, const char * path) {
 
         config_t cfg;
@@ -373,7 +396,15 @@
             }
 
             cfg->fSin = tmpInt1;
-            cfg->fSout = tmpInt2;
+            cfg->fSout = tmpInt2;   
+            
+            cfg->nBits = parameters_lookup_int(fileConfig, "raw.nBits");
+            cfg->recordEnabled = parameters_lookup_int(fileConfig, "raw.record");
+
+            strcpy(cfg->audioRecordPath, parameters_lookup_string(fileConfig, "raw.audioRecordPath"));
+            strcpy(cfg->bandpassPath, parameters_lookup_string(fileConfig, "raw.bandpass"));
+
+
 
         return cfg;
 
@@ -520,6 +551,53 @@
         return cfg;
 
     }
+    
+    
+    //moongoose
+    
+    mod_chatak_cfg * parameters_mod_chatak_stft_config(const char * fileConfig) {
+
+        mod_chatak_cfg * cfg;
+
+        cfg = mod_chatak_cfg_construct();
+        
+        return cfg;
+
+    }
+
+    // moongoose
+    
+        msg_chatak_id_cfg * parameters_msg_chatak_id_spectra_config(const char * fileConfig) {
+
+        msg_chatak_id_cfg * cfg;
+
+        unsigned int halfFrameSize;
+        unsigned int nChannels;
+        unsigned int fS;
+
+        cfg = msg_chatak_id_cfg_construct();
+
+        // +----------------------------------------------------------+
+        // | Sample rate                                              |
+        // +----------------------------------------------------------+
+
+            cfg->fS = parameters_lookup_int(fileConfig, "general.samplerate.mu");        
+
+        // +----------------------------------------------------------+
+        // | Hop size                                                 |
+        // +----------------------------------------------------------+
+
+            cfg->halfFrameSize = parameters_lookup_int(fileConfig, "general.size.frameSize") / 2 + 1;
+
+        // +----------------------------------------------------------+
+        // | Number of channels                                       |
+        // +----------------------------------------------------------+
+
+            cfg->nChannels = parameters_count(fileConfig, "mapping.map");
+
+        return cfg;
+
+    }
 
     mod_ssl_cfg * parameters_mod_ssl_config(const char * fileConfig) {
 
@@ -531,7 +609,8 @@
         unsigned int iFilter;
         unsigned int iSample;
         unsigned int iLevel;
-
+        
+    
         char * tmpLabel;
         char * tmpString;
 
@@ -601,6 +680,12 @@
                     free((void *) tmpLabel);
 
             }
+        
+        // +----------------------------------------------------------+
+        // | fS                                                  |
+        // +----------------------------------------------------------+
+
+            cfg->fS = parameters_lookup_int(fileConfig, "raw.fS");
 
         // +----------------------------------------------------------+
         // | Sample rate                                              |
@@ -923,11 +1008,22 @@
         float weight;
         float mu;
         float sigma;
+        unsigned int fS;
+        unsigned int hopSize;
+        unsigned int nBits;
 
         unsigned int iTrack;
         char * tmpStr1;
 
         cfg = mod_sst_cfg_construct();
+        
+        // +----------------------------------------------------------+
+        // | Raw                                                     |
+        // +----------------------------------------------------------+
+        
+             cfg->fS = parameters_lookup_int(fileConfig, "raw.fS");
+             cfg->hopSize = parameters_lookup_int(fileConfig, "raw.hopSize");
+             cfg->nBits = parameters_lookup_int(fileConfig, "raw.nBits");
 
         // +----------------------------------------------------------+
         // | Mode                                                     |
@@ -1106,6 +1202,55 @@
                 cfg->N_inactive[iTrack] = parameters_lookup_int(fileConfig, tmpStr1);
                 free((void *) tmpStr1);
 
+            }
+
+        // +----------------------------------------------------------+
+        // | Classifier Output                                        |
+        // +----------------------------------------------------------+
+
+            tmpStr1 = parameters_lookup_string(fileConfig, "sst.enable_classifier_output");
+
+            if (strcmp(tmpStr1, "enabled") == 0) {
+                cfg->enable_classifier_output = 1;
+            }
+            else if (strcmp(tmpStr1, "disabled") == 0) {
+                cfg->enable_classifier_output = 0;
+            }
+            else {
+                printf("sst.enable_classifier_output: Invalid value (use 'enabled' or 'disabled').\n");
+                exit(EXIT_FAILURE);
+            }
+
+            free((void *) tmpStr1);
+
+        // +----------------------------------------------------------+
+        // | Classifier Log Directory                                 |
+        // +----------------------------------------------------------+
+
+            tmpStr1 = parameters_lookup_string(fileConfig, "sst.classifier_log_dir");
+            cfg->classifier_log_dir = tmpStr1;  // Ownership transfers to cfg
+
+        // +----------------------------------------------------------+
+        // | Simulator mode  (0 = Pi/edge, 1 = Simulator)            |
+        // | Optional — defaults to 0 if absent from config file.    |
+        // +----------------------------------------------------------+
+
+            cfg->sim_mode = parameters_lookup_int_default(fileConfig, "sst.sim_mode", 0);
+            if (cfg->sim_mode < 0 || cfg->sim_mode > 1) {
+                printf("sst.sim_mode: Invalid value (use 0 or 1). Defaulting to 0.\n");
+                cfg->sim_mode = 0;
+            }
+
+        // +----------------------------------------------------------+
+        // | Minimum event votes (1–6, default 4)                    |
+        // | Number of ROLLING_HOPS hops that must agree on the      |
+        // | top-1 class before the JSON event is emitted.           |
+        // +----------------------------------------------------------+
+
+            cfg->min_event_votes = parameters_lookup_int_default(fileConfig, "sst.min_event_votes", 4);
+            if (cfg->min_event_votes < 1 || cfg->min_event_votes > 6) {
+                printf("sst.min_event_votes: Invalid value (use 1–6). Defaulting to 4.\n");
+                cfg->min_event_votes = 4;
             }
 
         return cfg;

@@ -1,29 +1,6 @@
 /**
 * \file     src_hops.c
-* \author   François Grondin <francois.grondin2@usherbrooke.ca>
-* \version  2.0
-* \date     2018-03-18
-* \copyright
-*
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-*
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*
+
 */
 
 #include <source/src_hops.h>
@@ -41,8 +18,17 @@ src_hops_obj * src_hops_construct(const src_hops_cfg * src_hops_config, const ms
     obj->nChannels = msg_hops_config->nChannels;
     obj->fS = msg_hops_config->fS;
 
+    obj->frameDurationSec = (double)obj->hopSize / (double)obj->fS;
+    obj->syntheticTimeUs = 0;
+
+
     obj->format = format_clone(src_hops_config->format);
     obj->interface = interface_clone(src_hops_config->interface);
+    
+    obj->timeStamps = NULL;
+    obj->numTimeStamps = -1;
+    obj->timeStampIndex = 0;
+
     if (src_hops_config->channel_map != NULL)
     {
         // Will not be null if in pulseaudio mode
@@ -152,16 +138,46 @@ void src_hops_open(src_hops_obj * obj) {
 
 }
 
-void src_hops_open_interface_file(src_hops_obj * obj) {
 
+void src_hops_open_interface_file(src_hops_obj *obj) {
+    // --- Open raw audio file ---
     obj->fp = fopen(obj->interface->fileName, "rb");
-
     if (obj->fp == NULL) {
-        printf("Cannot open file %s\n", obj->interface->fileName);
+        printf("Cannot open raw file: %s\n", obj->interface->fileName);
         exit(EXIT_FAILURE);
     }
 
+    // --- Construct .txt filename from .raw ---
+    char tsFileName[256];
+    strcpy(tsFileName, obj->interface->fileName);
+    char *ext = strstr(tsFileName, ".raw");
+    if (ext) {
+        strcpy(ext, ".txt");
+    }
+
+    // --- Try opening timestamp file ---
+    FILE *fp_ts = fopen(tsFileName, "r");
+    if (fp_ts != NULL) {
+        obj->timeStamps = malloc(sizeof(uint64_t) * 100000); // Adjust size as needed
+        obj->numTimeStamps = 0;
+
+        while (fscanf(fp_ts, "%lu", &obj->timeStamps[obj->numTimeStamps]) == 1) {
+            obj->numTimeStamps++;
+        }
+
+        fclose(fp_ts);
+        obj->timeStampIndex = 0;
+
+        printf("Loaded %d timestamps from %s\n", obj->numTimeStamps, tsFileName);
+    } else {
+        obj->timeStamps = NULL;
+        obj->numTimeStamps = -1;
+        obj->timeStampIndex = 0;
+
+        printf("No timestamp file found. Using synthetic timestamps.\n");
+    }
 }
+
 
 void src_hops_open_interface_soundcard(src_hops_obj * obj) {
 
@@ -459,26 +475,71 @@ int src_hops_process(src_hops_obj * obj) {
     return rtnValue;
 }
 
-int src_hops_process_interface_file(src_hops_obj * obj) {
-
-    unsigned int nBytesTotal;
+int src_hops_process_interface_file(src_hops_obj *obj) {
     int rtnValue;
+    int nBytesTotal;
 
-    nBytesTotal = fread(obj->buffer, sizeof(char), obj->bufferSize, obj->fp);
+    // Read one hop-sized chunk
+    nBytesTotal = fread(obj->buffer, 1, obj->bufferSize, obj->fp);
 
     if (nBytesTotal == obj->bufferSize) {
+        // Hop duration in microseconds (independent of channels)
+        unsigned int hop_delay_us = (obj->hopSize * 1000000) / obj->fS;
 
+        // Advance synthetic clock
+        obj->syntheticTimeUs += hop_delay_us;
+
+        // If timestamp file exists, override with its deltas
+        if (obj->timeStamps && obj->timeStampIndex + 1 < obj->numTimeStamps) {
+            uint64_t t1 = obj->timeStamps[obj->timeStampIndex];
+            uint64_t t2 = obj->timeStamps[obj->timeStampIndex + 1];
+            uint64_t delta_us = (t2 > t1) ? (t2 - t1) : hop_delay_us;
+            obj->syntheticTimeUs = t2;  // sync synthetic clock to recorded timestamp
+            hop_delay_us = (unsigned int)delta_us;
+        }
+
+        // Apply pacing every hop
+        //printf("Hop %d: sleeping %u us\n", obj->timeStampIndex, hop_delay_us);
+        usleep(hop_delay_us);
+
+        // Decode buffer
+        switch (obj->format->type) {
+            case format_binary_int08:
+                src_hops_process_format_binary_int08(obj);
+                break;
+            case format_binary_int16:
+                src_hops_process_format_binary_int16(obj);
+                break;
+            case format_binary_int24:
+                src_hops_process_format_binary_int24(obj);
+                break;
+            case format_binary_int32:
+                src_hops_process_format_binary_int32(obj);
+                break;
+            default:
+                printf("Unsupported format type.\n");
+                exit(EXIT_FAILURE);
+        }
+
+        // Assign timestamp
+        if (obj->timeStamps && obj->timeStampIndex < obj->numTimeStamps) {
+            obj->out->timeStamp = obj->timeStamps[obj->timeStampIndex];
+        } else {
+            obj->out->timeStamp = obj->syntheticTimeUs;
+        }
+
+        obj->timeStampIndex++;
         rtnValue = 0;
-        
-    }
-    else {
 
+    } else {
+        msg_hops_zero(obj->out);
         rtnValue = -1;
-    
     }
 
     return rtnValue;
 }
+
+
 
 int src_hops_process_interface_soundcard(src_hops_obj * obj) {
 

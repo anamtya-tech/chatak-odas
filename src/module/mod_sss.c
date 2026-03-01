@@ -1,30 +1,6 @@
 
    /**
     * \file     mod_sss.c
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    *
     */
     
     #include <module/mod_sss.h>
@@ -45,6 +21,22 @@
         obj->halfFrameSize = msg_spectra_config->halfFrameSize;
         obj->mode_sep = mod_sss_config->mode_sep;
         obj->mode_pf = mod_sss_config->mode_pf;
+
+        obj->nFramesPerTrack = 96;  // default FIFO length
+        obj->trackSpectra = malloc(sizeof(sss_track_spectrum_obj) * obj->nSeps);
+
+        for (unsigned int iTrack = 0; iTrack < obj->nSeps; iTrack++) {
+            obj->trackSpectra[iTrack].buffer = malloc(sizeof(float*) * obj->nFramesPerTrack);
+            for (unsigned int f = 0; f < obj->nFramesPerTrack; f++) {
+                obj->trackSpectra[iTrack].buffer[f] = malloc(sizeof(float) * obj->halfFrameSize);
+                memset(obj->trackSpectra[iTrack].buffer[f], 0x00, sizeof(float) * obj->halfFrameSize);
+            }
+            obj->trackSpectra[iTrack].count = 0;
+            obj->trackSpectra[iTrack].id = 0;
+            obj->trackSpectra[iTrack].type = 'I';
+            obj->trackSpectra[iTrack].lastFrameSeen = 0;
+        }
+
 
         obj->sep_ds_beampatterns_mics = (beampatterns_obj *) NULL;
         obj->sep_ds_steers = (steers_obj *) NULL;
@@ -352,11 +344,42 @@
 
         obj->enabled = 0;
 
+        // Initialize YAMNet classifier (same as mod_sst)
+    obj->yamnet = yamnet_create("/home/azureuser/z_odas_newbeamform/models/yamnet_core.tflite",
+                            "/home/azureuser/z_odas_newbeamform/models/yamnet_class_map.csv");
+
+    if (obj->yamnet == NULL) {
+        printf("Failed to initialize YAMNet in mod_sss\n");
+        exit(EXIT_FAILURE);
+    }
+
+
         return obj;
 
     }
 
     void mod_sss_destroy(mod_sss_obj * obj) {
+
+        // --- Free trackSpectra rolling buffers ---
+            if (obj->trackSpectra != NULL) {
+                for (unsigned int iTrack = 0; iTrack < obj->nSeps; iTrack++) {
+                    if (obj->trackSpectra[iTrack].buffer != NULL) {
+                        for (unsigned int f = 0; f < obj->nFramesPerTrack; f++) {
+                            free(obj->trackSpectra[iTrack].buffer[f]);  // free each frame
+                        }
+                        free(obj->trackSpectra[iTrack].buffer);        // free buffer array
+                    }
+                }
+                free(obj->trackSpectra);  // free the trackSpectra array itself
+                obj->trackSpectra = NULL;
+            }
+
+            // --- Free YAMNet handle if present ---
+            if (obj->yamnet) {
+                yamnet_destroy(obj->yamnet);
+                obj->yamnet = NULL;
+            }
+
 
         switch(obj->mode_sep) {
 
@@ -454,6 +477,12 @@
             break;
 
         }
+
+        if (obj->yamnet) {
+        yamnet_destroy(obj->yamnet);
+        obj->yamnet = NULL;
+    }
+
 
         free((void *) obj);
 
@@ -581,6 +610,9 @@
 
                 masks_copy(obj->sep_masks,
                            obj->sep_ds_masks);
+                
+                // Push all separated tracks into FIFO + classify
+                //push_track_to_buffer(obj, obj->in3, 1 /*debug*/);
 
             }
             else {
@@ -666,7 +698,10 @@
                                obj->sep_gss_demixingsNow);
 
                 masks_copy(obj->sep_masks,
-                           obj->sep_gss_masks);            
+                           obj->sep_gss_masks);
+                
+                // Push all separated tracks into FIFO + classify
+                //push_track_to_buffer(obj, obj->in3, 1 /*debug*/);
               
             }
             else {
@@ -921,3 +956,192 @@
         // Empty
 
     }
+
+    /*
+void push_track_to_buffer(mod_sss_obj* obj,
+                          msg_tracks_obj* msg_tracks,
+                          int debug) {
+    tracks_obj* tracks = msg_tracks->tracks;   // unwrap the message
+
+    for (unsigned int iTrack = 0; iTrack < tracks->nTracks; iTrack++) {
+        unsigned long long trackID = tracks->ids[iTrack];
+        if (trackID == 0) continue;
+
+        // FIFO index (circular buffer)
+        unsigned int idx = obj->trackSpectra[iTrack].count % obj->nFramesPerTrack;
+
+        // Copy separated spectrum (already float magnitudes)
+        if (obj->out1 && obj->out1->freqs && obj->out1->freqs->array[iTrack]) {
+            memcpy(obj->trackSpectra[iTrack].buffer[idx],
+                   obj->out1->freqs->array[iTrack],
+                   sizeof(float) * obj->halfFrameSize);
+        }
+
+        // Update metadata
+        obj->trackSpectra[iTrack].count++;
+        obj->trackSpectra[iTrack].id = trackID;
+        obj->trackSpectra[iTrack].lastFrameSeen = msg_tracks->timeStamp;
+
+        unsigned int count = obj->trackSpectra[iTrack].count;
+
+        // Trigger classification only when buffer is truly full (96 frames), with overlap
+        if (count >= obj->nFramesPerTrack &&
+            ((count == obj->nFramesPerTrack) || ((count - obj->nFramesPerTrack) % 48 == 0))) {
+
+            if (debug) {
+                printf("[SSS DEBUG] Track %llu ready for classification (count=%u)\n",
+                       trackID, count);
+            }
+
+            // Flatten last nFramesPerTrack frames into contiguous patch
+            unsigned int total_bins = obj->nFramesPerTrack * obj->halfFrameSize;
+            float *patch = (float *)malloc(sizeof(float) * total_bins);
+            if (!patch) {
+                printf("[ERROR] Failed to allocate patch buffer for Track %llu\n", trackID);
+                continue;
+            }
+
+            for (unsigned int i = 0; i < obj->nFramesPerTrack; i++) {
+                unsigned int f = (count - obj->nFramesPerTrack + i) % obj->nFramesPerTrack;
+                memcpy(&patch[i * obj->halfFrameSize],
+                       obj->trackSpectra[iTrack].buffer[f],
+                       sizeof(float) * obj->halfFrameSize);
+            }
+
+            int class_id;
+            const char* class_name;
+            float confidence;
+
+            if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
+                printf("[SSS Audio Event] Track %llu classified as %s (Confidence: %.2f)\n",
+                       trackID, class_name, confidence);
+
+                strcpy(tracks->tags[iTrack], class_name);
+                tracks->activity[iTrack] = confidence;
+            }
+
+            if (debug) {
+                unsigned int nonzero_bins = 0;
+                for (unsigned int i = 0; i < total_bins; i++) {
+                    if (patch[i] != 0.0f) nonzero_bins++;
+                }
+                printf("[DEBUG] Patch bins=%u, non-zero=%u\n",
+                       total_bins, nonzero_bins);
+            }
+
+            free(patch);
+        }
+    }
+}
+
+*/
+
+
+// Declaration in mod_sss.h:
+// void push_track_to_buffer(mod_sss_obj* obj, msg_tracks_obj* msg_tracks, int debug);
+
+void push_track_to_buffer(mod_sss_obj* obj,
+                          msg_tracks_obj* msg_tracks,
+                          int debug) {
+    tracks_obj* tracks = msg_tracks->tracks;   // unwrap the message
+
+    for (unsigned int iTrack = 0; iTrack < tracks->nTracks; iTrack++) {
+        unsigned long long trackID = tracks->ids[iTrack];
+        if (trackID == 0) continue;
+
+        // Initialize track lazily if needed
+        if (obj->trackSpectra[iTrack].id == 0) {
+            obj->trackSpectra[iTrack].id = trackID;
+            obj->trackSpectra[iTrack].count = 0;
+            obj->trackSpectra[iTrack].lastFrameSeen = msg_tracks->timeStamp;
+            obj->trackSpectra[iTrack].type = 'S'; // mark as SSS track
+
+            if (obj->trackSpectra[iTrack].buffer == NULL) {
+                obj->trackSpectra[iTrack].buffer =
+                    (float **)calloc(obj->nFramesPerTrack, sizeof(float *));
+                if (obj->trackSpectra[iTrack].buffer == NULL) {
+                    if (debug) {
+                        printf("[ERROR] Failed to allocate buffer array for Track %llu\n", trackID);
+                    }
+                    continue;
+                }
+            }
+
+            if (debug) {
+                printf("[ALLOC] New buffer initialized for Track %llu at index %u\n",
+                       trackID, iTrack);
+            }
+        }
+
+        unsigned int count = obj->trackSpectra[iTrack].count;
+        unsigned int h = count % obj->nFramesPerTrack;
+
+        // Copy separated spectrum if valid
+        if (obj->out1 && obj->out1->freqs && obj->out1->freqs->array[iTrack]) {
+            if (obj->trackSpectra[iTrack].buffer[h] == NULL) {
+                obj->trackSpectra[iTrack].buffer[h] =
+                    (float *)malloc(sizeof(float) * obj->halfFrameSize);
+                if (obj->trackSpectra[iTrack].buffer[h] == NULL) {
+                    if (debug) {
+                        printf("[ERROR] Failed to allocate buffer[%u] for Track %llu\n", h, trackID);
+                    }
+                    continue;
+                }
+            }
+
+            memcpy(obj->trackSpectra[iTrack].buffer[h],
+                   obj->out1->freqs->array[iTrack],
+                   sizeof(float) * obj->halfFrameSize);
+
+            obj->trackSpectra[iTrack].count++;
+            obj->trackSpectra[iTrack].lastFrameSeen = msg_tracks->timeStamp;
+            count = obj->trackSpectra[iTrack].count;
+
+            // Trigger classification when buffer has 96 frames, then every 48
+            if (count >= 96 && ((count == 96) || ((count - 48) % 96 == 0))) {
+                if (debug) {
+                    printf("[SSS DEBUG] Track %llu frame count=%u\n", trackID, count);
+                }
+
+                // Flatten last 96 frames into contiguous patch
+                float patch[96 * obj->halfFrameSize];
+                for (unsigned int i = 0; i < 96; i++) {
+                    unsigned int f = (count - 96 + i) % obj->nFramesPerTrack;
+                    memcpy(&patch[i * obj->halfFrameSize],
+                           obj->trackSpectra[iTrack].buffer[f],
+                           sizeof(float) * obj->halfFrameSize);
+                }
+
+                int class_id;
+                const char* class_name;
+                float confidence;
+
+                // Debug completeness
+                unsigned int total_bins = 96 * obj->halfFrameSize;
+                unsigned int nonzero_bins = 0;
+                for (unsigned int i = 0; i < total_bins; i++) {
+                    if (patch[i] != 0.0f) nonzero_bins++;
+                }
+                if (debug) {
+                    printf("[DEBUG] Patch bins=%u, non-zero=%u\n",
+                           total_bins, nonzero_bins);
+                }
+
+                if (yamnet_classify_patch(obj->yamnet, patch,
+                                          &class_id, &class_name, &confidence)) {
+                    printf("[SSS Audio Event] Track %llu classified as %s (Confidence: %.2f)\n",
+                           trackID, class_name, confidence);
+
+                    strcpy(tracks->tags[iTrack], class_name);
+                    tracks->activity[iTrack] = confidence;
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+

@@ -330,7 +330,7 @@
     void snk_pots_process_interface_socket(snk_pots_obj * obj) {
 
         if (send(obj->sid, obj->buffer, obj->bufferSize, 0) < 0) {
-            printf("Sink pots: Could not send message.\n");
+            printf("Sink pots: Could not send message.\n", strerror(errno));
             exit(EXIT_FAILURE);
         }        
 

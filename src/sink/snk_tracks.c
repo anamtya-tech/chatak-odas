@@ -1,33 +1,11 @@
    
    /**
     * \file     snk_tracks.c
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     *
     */
     
     #include <sink/snk_tracks.h>
+    #include <sys/time.h>
 
     snk_tracks_obj * snk_tracks_construct(const snk_tracks_cfg * snk_tracks_config, const msg_tracks_cfg * msg_tracks_config) {
 
@@ -341,24 +319,33 @@
     void snk_tracks_process_format_text_json(snk_tracks_obj * obj) {
 
         unsigned int iTrack;
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        unsigned long long systemTimeMs = (unsigned long long)(tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
+
 
         obj->buffer[0] = 0x00;
 
         sprintf(obj->buffer,"%s{\n",obj->buffer);
-        sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,obj->in->timeStamp);
+        //sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,obj->in->timeStamp);
+        sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,systemTimeMs);
         sprintf(obj->buffer,"%s    \"src\": [\n",obj->buffer);
 
         for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
 
-            sprintf(obj->buffer,"%s        { \"id\": %llu, \"tag\": \"%s\", \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f, \"activity\": %1.3f }", 
-                    obj->buffer,
-                    obj->in->tracks->ids[iTrack],
-                    obj->in->tracks->tags[iTrack],
-                    obj->in->tracks->array[iTrack*3+0], 
-                    obj->in->tracks->array[iTrack*3+1], 
-                    obj->in->tracks->array[iTrack*3+2],
-                    obj->in->tracks->activity[iTrack]);
-
+            sprintf(obj->buffer,"%s{ \"id\": %llu, \"tag\": \"%s\", \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f,\"activity\": %1.3f }",
+                obj->buffer,
+                obj->in->tracks->ids[iTrack],
+                obj->in->tracks->tags[iTrack],
+                obj->in->tracks->array[iTrack*3+0],
+                obj->in->tracks->array[iTrack*3+1],
+                obj->in->tracks->array[iTrack*3+2],
+                obj->in->tracks->velocity[iTrack*3+0],
+                obj->in->tracks->velocity[iTrack*3+1],
+                obj->in->tracks->velocity[iTrack*3+2],
+                obj->in->tracks->activity[iTrack]
+            );
+            
             if (iTrack != (obj->nTracks - 1)) {
 
                 sprintf(obj->buffer,"%s,",obj->buffer);

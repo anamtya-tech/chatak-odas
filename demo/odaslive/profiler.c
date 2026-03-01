@@ -24,6 +24,10 @@
         prf->mod_noise_mics_prf = 0.0f;
         prf->con_powers_mics_prf = 0.0f;
 
+        prf->mod_chatak_stft_prf = 0.0f;   // moongoose
+        prf->con_chatak_id_spectra_prf = 0.0f;   //  moongoose
+
+
         prf->mod_ssl_prf = 0.0f;
         prf->con_pots_ssl_prf = 0.0f;
         prf->snk_pots_ssl_prf = 0.0f;

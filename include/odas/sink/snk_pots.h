@@ -36,6 +36,7 @@
     #include <netinet/in.h>
     #include <arpa/inet.h>
     #include <unistd.h>
+    #include <errno.h>
 
     #include "../general/format.h"
     #include "../general/interface.h"

@@ -7,6 +7,8 @@
     
     int parameters_lookup_int(const char * file, const char * path);
 
+    int parameters_lookup_int_default(const char * file, const char * path, int defaultValue);
+
     float parameters_lookup_float(const char * file, const char * path);
 
     char * parameters_lookup_string(const char * file, const char * path);
@@ -42,6 +44,9 @@
 
     msg_powers_cfg * parameters_msg_powers_mics_config(const char * fileConfig);
 
+    mod_chatak_cfg * parameters_mod_chatak_stft_config(const char * fileConfig);  // moongoose
+
+    msg_chatak_id_cfg * parameters_msg_chatak_id_spectra_config(const char * fileConfig);  // moongoose
 
     mod_ssl_cfg * parameters_mod_ssl_config(const char * fileConfig);
 

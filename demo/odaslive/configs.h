@@ -22,6 +22,9 @@
 
         mod_noise_cfg * mod_noise_mics_config;
         msg_powers_cfg * msg_powers_mics_config;
+        
+        mod_chatak_cfg * mod_chatak_stft_config;  // moongoose
+        msg_chatak_id_cfg * msg_chatak_id_spectra_config; // moongoose
 
         mod_ssl_cfg * mod_ssl_config;
         msg_pots_cfg * msg_pots_ssl_config;

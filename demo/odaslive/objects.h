@@ -23,6 +23,9 @@
 
         mod_noise_obj * mod_noise_mics_object;
         con_powers_obj * con_powers_mics_object;
+        
+        mod_chatak_obj * mod_chatak_stft_object; // moongoose
+        con_chatak_id_obj * con_chatak_id_spectra_object; // moongoose
 
         mod_ssl_obj * mod_ssl_object;
         snk_pots_obj * snk_pots_ssl_object;
@@ -80,6 +83,9 @@
 
         amod_noise_obj * amod_noise_mics_object;
         acon_powers_obj * acon_powers_mics_object;
+        
+        amod_chatak_obj * amod_chatak_stft_object;   // moongoose
+        acon_chatak_id_obj * acon_chatak_id_spectra_object;  // moongoose        
 
         amod_ssl_obj * amod_ssl_object;
         asnk_pots_obj * asnk_pots_ssl_object;

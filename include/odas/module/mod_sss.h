@@ -3,30 +3,6 @@
 
    /**
     * \file     mod_sss.h
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    *
     */
 
     #include "../general/mic.h"
@@ -58,6 +34,19 @@
     #include <stdlib.h>
     #include <string.h>
 
+    // YAMNet C API: single source of truth for all YAMNet declarations
+    #include "yamnet/yamnet_c_api.h"
+
+    // Track spectra buffer struct
+    typedef struct sss_track_spectrum_obj {
+        unsigned int id;                 // Track ID
+        char type;                       // Track type
+        unsigned int count;              // Frame counter
+        unsigned int lastFrameSeen;
+        float **buffer;                  // Circular buffer of spectral snapshots
+        unsigned long int timestamp;
+    } sss_track_spectrum_obj;
+
     typedef struct mod_sss_obj {
 
         unsigned int nSeps;
@@ -66,6 +55,16 @@
 
         char mode_sep;
         char mode_pf;
+
+        unsigned int nFramesPerTrack;
+        
+        sss_track_spectrum_obj *trackSpectra;
+
+        yamnet_handle_t* yamnet;
+
+        char enabled;
+
+
 
         beampatterns_obj * sep_ds_beampatterns_mics;
         steers_obj * sep_ds_steers;
@@ -131,8 +130,6 @@
         msg_tracks_obj * in3;
         msg_spectra_obj * out1;
         msg_spectra_obj * out2;
-
-        char enabled;
 
     } mod_sss_obj;
 
@@ -203,5 +200,9 @@
     void mod_sss_cfg_destroy(mod_sss_cfg * cfg);
 
     void mod_sss_cfg_printf(const mod_sss_cfg * cfg);
+
+    void push_track_to_buffer(mod_sss_obj* obj, msg_tracks_obj* tracks,int debug);
+                         
+                          
 
 #endif

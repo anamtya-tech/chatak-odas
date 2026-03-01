@@ -24,6 +24,9 @@
         float mod_noise_mics_prf;
         float con_powers_mics_prf;
 
+        float mod_chatak_stft_prf; //  moongoose
+        float con_chatak_id_spectra_prf; // moongoose
+
         float mod_ssl_prf;
         float con_pots_ssl_prf;
         float snk_pots_ssl_prf;

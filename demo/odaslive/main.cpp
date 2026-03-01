@@ -1,15 +1,28 @@
 
     #include <odas/odas.h>
 
+extern "C" {
     #include "parameters.h"
     #include "configs.h"
     #include "objects.h"
     #include "threads.h"
     #include "profiler.h"
+    #include "odas/python/python_zodas.h"
+}
+
 
     #include <getopt.h>
     #include <time.h>
     #include <signal.h>
+    #include <unistd.h>
+
+    #include <tensorflow/lite/c/c_api.h>
+
+    #include <string>
+    #include "yamnet_classifier.h"
+
+    static YAMNetClassifier g_yamnet;   // global instance
+
 
     // +----------------------------------------------------------+
     // | Variables                                                |
@@ -23,6 +36,13 @@
                 processing_singlethread,
                 processing_multithread
             } type;
+            
+
+        // +------------------------------------------------------+
+        // | GetPID                                               |
+        // +------------------------------------------------------+   
+
+            pid_t zodas_pid ;
 
         // +------------------------------------------------------+
         // | Getopt                                               |
@@ -30,6 +50,8 @@
 
             int c;
             char * file_config;
+            char *typeStr;
+            int record_enabled =0;
 
         // +------------------------------------------------------+
         // | Objects                                              |
@@ -85,8 +107,11 @@
             char verbose = 0x00;
 
             type = processing_multithread;
+            
+            zodas_pid = getpid();
+            
 
-            while ((c = getopt(argc,argv, "c:hsv")) != -1) {
+            while ((c = getopt(argc,argv, "c:hsvr")) != -1) {
 
                 switch(c) {
 
@@ -127,6 +152,12 @@
                     case 'v':
 
                         verbose = 0x01;
+
+                    break;
+                    
+                    case 'r':
+
+                        record_enabled = 1;
 
                     break;
 
@@ -261,11 +292,55 @@
 
                 if (verbose == 0x01) printf("[Done] |\n");
 
+                // +--------------------------------------------------+
+                // | Load Classifier                                  |
+                // +--------------------------------------------------+  
+
+          
+                const char* modelDir = parameters_lookup_string(file_config, "raw.model_path");
+                if (modelDir != NULL) {
+                    std::string model_path   = std::string(modelDir) + "/yamnet_core.tflite";
+                    std::string labels_path  = std::string(modelDir) + "/yamnet_class_map.csv";
+
+                    if (g_yamnet.LoadModel(model_path.c_str()) &&
+                        g_yamnet.LoadClassNames(labels_path.c_str())) {
+                        printf("| + Loaded Classifier................. [Done] |\n"); fflush(stdout);
+                    } else {
+                        if (verbose == 0x01){printf("| + Classifier load failed............ [Done] |\n"); fflush(stdout);}
+                    }
+                } else {
+                    if (verbose == 0x01){printf("| + No model_path in config........... [Skipped] |\n"); fflush(stdout);}
+                }
+
+            // +--------------------------------------------------+
+            // | Start recorder                                   |
+            // +--------------------------------------------------+  
+    
+                typeStr = parameters_lookup_string(file_config, "raw.interface.type");
+                if (record_enabled) {
+                    if (strcmp(typeStr, "file") == 0) {
+                        printf("| + Skipping record for file read.... [Done] |\n"); fflush(stdout);
+                    } else {
+                        call_sync_zodas(
+                            cfgs->msg_hops_mics_raw_config->fS,
+                            cfgs->msg_hops_mics_raw_config->hopSize,
+                            cfgs->mod_resample_mics_config->nBits,
+                            cfgs->msg_hops_mics_raw_config->nChannels,
+                            cfgs->mod_resample_mics_config->audioRecordPath,
+                            zodas_pid
+                        );
+                        if (verbose == 0x01){printf("| + Record Audio Started............. [Done] |\n"); fflush(stdout);}
+                    }
+                } else {
+                   if (verbose == 0x01) { printf("| + Starting Without Record.......... [Done] |\n"); fflush(stdout);}
+                }
+
+
             // +--------------------------------------------------+
             // | Wait                                             |
             // +--------------------------------------------------+  
 
-                if (verbose == 0x01) printf("| + Threads running.................. "); fflush(stdout); 
+                if (verbose == 0x01) printf("| + Threads running..................\n\n "); fflush(stdout); 
                 
                 threads_multiple_join(aobjs);
 
@@ -280,6 +355,7 @@
                 aobjects_destroy(aobjs);
                 configs_destroy(cfgs);
                 free((void *) file_config);
+                free((void *) typeStr);
 
                 if (verbose == 0x01) printf("[Done] |\n");
 

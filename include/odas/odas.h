@@ -4,6 +4,15 @@
 extern "C" {
 #endif
 
+    
+    #include <module/mod_chatak.h>
+    #include <message/msg_chatak_id.h>
+    #include <connector/con_chatak_id.h>
+    
+    #include <amodule/amod_chatak.h>
+    #include <amessage/amsg_chatak_id.h>
+    #include <aconnector/acon_chatak_id.h>    
+    
     #include <connector/con_categories.h>
     #include <connector/con_hops.h>
     #include <connector/con_pots.h>

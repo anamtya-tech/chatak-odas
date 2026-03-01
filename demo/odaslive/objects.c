@@ -80,7 +80,8 @@
                 // | Connector                                        |
                 // +--------------------------------------------------+  
 
-                    objs->con_spectra_mics_object = con_spectra_construct(3, cfgs->msg_spectra_mics_config);
+                    objs->con_spectra_mics_object = con_spectra_construct(4, cfgs->msg_spectra_mics_config);
+
 
             // +------------------------------------------------------+
             // | Noise                                                |
@@ -99,6 +100,24 @@
                 // +--------------------------------------------------+  
 
                     objs->con_powers_mics_object = con_powers_construct(1, cfgs->msg_powers_mics_config);
+
+
+            // +------------------------------------------------------+
+            // | Chatak                                                 |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    objs->mod_chatak_stft_object = mod_chatak_construct(cfgs->mod_chatak_stft_config);    // moongoose
+  
+                // +--------------------------------------------------+
+                // | Connector                                        |
+                // +--------------------------------------------------+  
+
+                    objs->con_chatak_id_spectra_object = con_chatak_id_construct(1, cfgs->msg_chatak_id_spectra_config);   // moongoose
+
 
             // +------------------------------------------------------+
             // | SSL                                                  |
@@ -155,7 +174,8 @@
                                                              cfgs->mod_ssl_config, 
                                                              cfgs->msg_pots_ssl_config, 
                                                              cfgs->msg_targets_sst_config,
-                                                             cfgs->msg_tracks_sst_config);
+                                                             cfgs->msg_tracks_sst_config,
+                                                             cfgs->msg_spectra_pfs_config);
 
                 // +--------------------------------------------------+
                 // | Sinks                                            |
@@ -356,6 +376,20 @@
                                       objs->con_powers_mics_object->in);
 
             // +------------------------------------------------------+
+            // | Chatak                                                 |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    mod_chatak_connect(objs->mod_chatak_stft_object, 
+                                     objs->con_spectra_mics_object->outs[1], 
+                                     objs->con_chatak_id_spectra_object->in); // moongoose
+
+
+
+            // +------------------------------------------------------+
             // | SSL                                                  |
             // +------------------------------------------------------+  
 
@@ -364,8 +398,9 @@
                 // +--------------------------------------------------+  
 
                     mod_ssl_connect(objs->mod_ssl_object, 
-                                    objs->con_spectra_mics_object->outs[1], 
-                                    objs->con_pots_ssl_object->in);
+                                    objs->con_spectra_mics_object->outs[2],
+                                    objs->con_chatak_id_spectra_object->outs[0],
+                                    objs->con_pots_ssl_object->in);   // moongoose
 
                 // +--------------------------------------------------+
                 // | Sinks                                            |
@@ -415,7 +450,7 @@
                 // +--------------------------------------------------+  
 
                     mod_sss_connect(objs->mod_sss_object,
-                                    objs->con_spectra_mics_object->outs[2],
+                                    objs->con_spectra_mics_object->outs[3],  // moongoose
                                     objs->con_powers_mics_object->outs[0],
                                     objs->con_tracks_sst_object->outs[0],
                                     objs->con_spectra_seps_object->in,
@@ -506,9 +541,10 @@
             mod_mapping_enable(objs->mod_mapping_mics_object);
             mod_resample_enable(objs->mod_resample_mics_object);
             mod_stft_enable(objs->mod_stft_mics_object);
+            mod_chatak_enable(objs->mod_chatak_stft_object); // moongoose          
 
             if (cfgs->snk_pots_ssl_config->interface->type != interface_blackhole) {
-
+                
                 mod_ssl_enable(objs->mod_ssl_object);
 
             }
@@ -646,6 +682,23 @@
                 // +--------------------------------------------------+  
 
                     con_powers_destroy(objs->con_powers_mics_object);
+
+
+            // +------------------------------------------------------+
+            // | Chatak                                                 |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    mod_chatak_destroy(objs->mod_chatak_stft_object);  // moongoose
+                                        
+                // +--------------------------------------------------+
+                // | Connector                                        |
+                // +--------------------------------------------------+  
+
+                    con_chatak_id_destroy(objs->con_chatak_id_spectra_object);  // moongoose
 
             // +------------------------------------------------------+
             // | SSL                                                  |
@@ -892,7 +945,7 @@
                 // | Connector                                        |
                 // +--------------------------------------------------+
                     
-                    objs->acon_spectra_mics_object = acon_spectra_construct(3, objs->nMessages, cfgs->msg_spectra_mics_config);
+                    objs->acon_spectra_mics_object = acon_spectra_construct(4, objs->nMessages, cfgs->msg_spectra_mics_config);
 
             // +------------------------------------------------------+
             // | Noise                                                |
@@ -911,6 +964,23 @@
                 // +--------------------------------------------------+
                     
                     objs->acon_powers_mics_object = acon_powers_construct(1, objs->nMessages, cfgs->msg_powers_mics_config);
+
+            // +------------------------------------------------------+
+            // | Chatak                                                 |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    objs->amod_chatak_stft_object = amod_chatak_construct(cfgs->mod_chatak_stft_config);  // moongoose
+
+                // +--------------------------------------------------+
+                // | Connector                                        |
+                // +--------------------------------------------------+
+                    
+                    objs->acon_chatak_id_spectra_object = acon_chatak_id_construct(1, objs->nMessages, cfgs->msg_chatak_id_spectra_config);  // moongoose
+
 
             // +------------------------------------------------------+
             // | SSL                                                  |
@@ -967,7 +1037,8 @@
                                                                cfgs->mod_ssl_config, 
                                                                cfgs->msg_pots_ssl_config, 
                                                                cfgs->msg_targets_sst_config,
-                                                               cfgs->msg_tracks_sst_config);
+                                                               cfgs->msg_tracks_sst_config,
+                                                               cfgs->msg_spectra_pfs_config);
 
                 // +--------------------------------------------------+
                 // | Sinks                                            |
@@ -1168,6 +1239,19 @@
                     amod_noise_connect(objs->amod_noise_mics_object,
                                        objs->acon_spectra_mics_object->outs[0],
                                        objs->acon_powers_mics_object->in);
+                                       
+
+            // +------------------------------------------------------+
+            // | Chatak                                                |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    amod_chatak_connect(objs->amod_chatak_stft_object,
+                                       objs->acon_spectra_mics_object->outs[1],
+                                       objs->acon_chatak_id_spectra_object->in);  // moongoose
 
             // +------------------------------------------------------+
             // | SSL                                                  |
@@ -1178,8 +1262,9 @@
                 // +--------------------------------------------------+  
 
                     amod_ssl_connect(objs->amod_ssl_object, 
-                                     objs->acon_spectra_mics_object->outs[1], 
-                                     objs->acon_pots_ssl_object->in);
+                                     objs->acon_spectra_mics_object->outs[2],
+                                     objs->acon_chatak_id_spectra_object->outs[0],
+                                     objs->acon_pots_ssl_object->in); // moongoose
 
                 // +--------------------------------------------------+
                 // | Sinks                                            |
@@ -1229,7 +1314,7 @@
                 // +--------------------------------------------------+  
 
                     amod_sss_connect(objs->amod_sss_object,
-                                     objs->acon_spectra_mics_object->outs[2],
+                                     objs->acon_spectra_mics_object->outs[3], // moongoose
                                      objs->acon_powers_mics_object->outs[0],
                                      objs->acon_tracks_sst_object->outs[0],
                                      objs->acon_spectra_seps_object->in,
@@ -1320,6 +1405,7 @@
             amod_mapping_enable(objs->amod_mapping_mics_object);
             amod_resample_enable(objs->amod_resample_mics_object);
             amod_stft_enable(objs->amod_stft_mics_object);
+            amod_chatak_enable(objs->amod_chatak_stft_object); // moongoose
 
             if (cfgs->snk_pots_ssl_config->interface->type != interface_blackhole) {
 
@@ -1462,6 +1548,22 @@
                     acon_powers_destroy(objs->acon_powers_mics_object);  
 
             // +------------------------------------------------------+
+            // | Chatak                                                |
+            // +------------------------------------------------------+  
+
+                // +--------------------------------------------------+
+                // | Module                                           |
+                // +--------------------------------------------------+  
+
+                    amod_chatak_destroy(objs->amod_chatak_stft_object);     // moongoose
+                    
+                // +--------------------------------------------------+
+                // | Connector                                        |
+                // +--------------------------------------------------+  
+
+                    acon_chatak_id_destroy(objs->acon_chatak_id_spectra_object);   //  moongoose
+                    
+             // +------------------------------------------------------+
             // | SSL                                                  |
             // +------------------------------------------------------+  
 

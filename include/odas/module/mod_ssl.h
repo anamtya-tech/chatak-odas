@@ -1,33 +1,7 @@
 #ifndef __ODAS_MODULE_SSL
 #define __ODAS_MODULE_SSL
 
-   /**
-    * \file     mod_ssl.h
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    *
-    */
+ 
 
     #include <stdlib.h>
     #include <string.h>
@@ -48,13 +22,17 @@
     #include "../system/freq2xcorr.h"
     #include "../system/xcorr2aimg.h"
     #include "../system/xcorr2xcorr.h"
+    #include "../system/xcorr2spec.h"
 
     #include "../init/scanning.h"
-
+    
     #include "../message/msg_spectra.h"
+    #include "../message/msg_chatak_id.h"
     #include "../message/msg_powers.h"
     #include "../message/msg_pots.h"
 
+    // Declare session_start as extern so it’s only defined once in the .c file
+    extern unsigned long long session_start;
 
     typedef struct mod_ssl_obj {
 
@@ -62,12 +40,16 @@
         unsigned int nPairs;
         unsigned int nPots;
         unsigned int nLevels;
+        unsigned int fS;
         unsigned int frameSize;
         unsigned int halfFrameSize;
         unsigned int frameSizeInterp;
         unsigned int halfFrameSizeInterp;
         unsigned int interpRate;
-
+        unsigned int nMatches;
+        
+        float **spec_at_peak;
+        
         scans_obj * scans;
 
         freqs_obj * phasors;   
@@ -89,6 +71,7 @@
         pots_obj * pots;
 
         msg_spectra_obj * in;
+        msg_chatak_id_obj * in1;
         msg_pots_obj * out;
 
         char enabled;
@@ -101,7 +84,8 @@
         samplerate_obj * samplerate;
         soundspeed_obj * soundspeed;
         spatialfilters_obj * spatialfilters;
-
+        
+        unsigned int fS;
         unsigned int interpRate;
         float epsilon; 
         unsigned int nLevels;
@@ -121,7 +105,7 @@
 
     int mod_ssl_process(mod_ssl_obj * obj);
 
-    void mod_ssl_connect(mod_ssl_obj * obj, msg_spectra_obj * in, msg_pots_obj * out);
+    void mod_ssl_connect(mod_ssl_obj * obj, msg_spectra_obj * in, msg_chatak_id_obj* in1,msg_pots_obj * out);
 
     void mod_ssl_disconnect(mod_ssl_obj * obj);
 
@@ -134,5 +118,8 @@
     void mod_ssl_cfg_destroy(mod_ssl_cfg * cfg);
 
     void mod_ssl_cfg_printf(const mod_ssl_cfg * cfg);
+    
+    void xcorr2true_spectrum_at_peak(unsigned int fS, float **channel_spectra, unsigned int *micB, unsigned int n_pairs, unsigned int n_channels, unsigned int frame_size, unsigned int peak_index, float *spec_output, float x, float y, float z);
+
 
 #endif

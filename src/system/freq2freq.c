@@ -1,30 +1,6 @@
 
    /**
     * \file     freq2freq.c
-    * \author   François Grondin <francois.grondin2@usherbrooke.ca>
-    * \version  2.0
-    * \date     2018-03-18
-    * \copyright
-    *
-    * Permission is hereby granted, free of charge, to any person obtaining
-    * a copy of this software and associated documentation files (the
-    * "Software"), to deal in the Software without restriction, including
-    * without limitation the rights to use, copy, modify, merge, publish,
-    * distribute, sublicense, and/or sell copies of the Software, and to
-    * permit persons to whom the Software is furnished to do so, subject to
-    * the following conditions:
-    *
-    * The above copyright notice and this permission notice shall be
-    * included in all copies or substantial portions of the Software.
-    *
-    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-    * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-    * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-    * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-    * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-    * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    *
     */
     
     #include <system/freq2freq.h>
@@ -168,6 +144,44 @@
         }
 
     }
+    
+    
+    freq2freq_bandpass_obj * freq2freq_bandpass_construct_zero(const unsigned int halfFrameSize, const unsigned int lowCut, const unsigned int highCut) {
+            freq2freq_bandpass_obj * obj;
+
+            obj = (freq2freq_bandpass_obj *) malloc(sizeof(freq2freq_bandpass_obj));
+            obj->halfFrameSize = halfFrameSize;
+            obj->lowCut = lowCut;
+            obj->highCut = highCut;
+
+            return obj;
+        }
+        
+    void freq2freq_bandpass_destroy(freq2freq_bandpass_obj * obj) {
+        free((void *) obj);
+    }
+
+    void freq2freq_bandpass_process(freq2freq_bandpass_obj * obj, const freqs_obj * freqsIn, freqs_obj * freqsOut) {
+        unsigned int iSignal, iBin;
+        for (iSignal = 0; iSignal < freqsIn->nSignals; iSignal++) {
+            for (iBin = 0; iBin < obj->halfFrameSize; iBin++) {
+                unsigned int idxReal = 2 * iBin;
+                unsigned int idxImag = 2 * iBin + 1;
+
+                if (iBin >= obj->lowCut && iBin <= obj->highCut) {
+                    freqsOut->array[iSignal][idxReal] = freqsIn->array[iSignal][idxReal];
+                    freqsOut->array[iSignal][idxImag] = freqsIn->array[iSignal][idxImag];
+                } else {
+                    freqsOut->array[iSignal][idxReal] = 0.0f;
+                    freqsOut->array[iSignal][idxImag] = 0.0f;
+                }
+            }
+        }
+    }
+
+
+
+
 
     freq2freq_lowpass_obj * freq2freq_lowpass_construct_zero(const unsigned int halfFrameSize, const unsigned int lowPassCut) {
 
