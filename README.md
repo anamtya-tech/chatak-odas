@@ -58,13 +58,10 @@ wildlife acoustic-monitoring system.
 
 ## Quick start
 
-> **Note:** The GitHub repo for this ODAS fork has not been published yet.
-> Once created, the clone URL will be added here.
-
 ```bash
-# 1. Clone (with submodules) — replace URL once repo is published
-git clone --recurse-submodules https://github.com/anamtya-tech/<ODAS-REPO-NAME>.git
-cd <ODAS-REPO-NAME>
+# 1. Clone (with submodules)
+git clone --recurse-submodules https://github.com/anamtya-tech/chatak-odas.git
+cd chatak-odas
 
 # 2. Install build dependencies (Debian/Ubuntu)
 sudo apt install -y cmake libfftw3-dev libconfig-dev libasound2-dev
