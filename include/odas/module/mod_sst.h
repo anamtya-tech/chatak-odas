@@ -57,7 +57,8 @@
 typedef struct track_spectrum_obj {
     unsigned int id;                 // Track ID
     char type;                       // Track type
-    unsigned int count;              // Frame counter
+    unsigned int count;              // Frame counter (spectral frames stored)
+    unsigned int hop_age;            // Hop age — increments every hop unconditionally
     unsigned int lastFrameSeen;
     float **buffer;                  // Circular buffer of spectral snapshots
     unsigned long int timestamp;

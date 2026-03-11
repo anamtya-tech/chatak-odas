@@ -70,7 +70,6 @@
             }
 
             obj->trackSpectra[iTrackMax].count = 0;
-            obj->trackSpectra[iTrackMax].hop_age = 0;
             obj->trackSpectra[iTrackMax].id    = 0;
             obj->trackSpectra[iTrackMax].type  = 0;
             obj->trackSpectra[iTrackMax].lastFrameSeen  = 0;
@@ -524,10 +523,6 @@ void mod_sst_destroy(mod_sst_obj * obj) {
         
         free((void *) obj);
 }
-
-/* Forward declaration — defined after push_pot_to_track_buffer */
-static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
-                                int early_hop, unsigned int nFramesPerTrack);
 
     int mod_sst_process(mod_sst_obj * obj) {
 
@@ -1149,32 +1144,6 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
 
                         iTrack++;
 
-                        /* Increment hop_age unconditionally every processing hop.
-                         * This fixes tracks that never win pot assignments (e.g.,
-                         * weak/low-coherence sources whose frame_count stays at 1):
-                         * hop_age still advances so the early YAMNet hop fires at
-                         * hop_age==48 even when no spectra have been stored. */
-                        obj->trackSpectra[iTrackMax].hop_age++;
-
-                        /* Early hop trigger: fires once at hop_age==48 if YAMNet
-                         * has not yet produced any classification for this track.
-                         * Skipped if push_pot already fired the early hop at count==48
-                         * (topk_count would then be > 0). */
-                        /* Early hop trigger: fire at hop_age==48 only when
-                         * we have >= 6 real spectral frames (count >= 6).
-                         * For sparse sources that rarely win SSL peaks
-                         * (count < 6 at hop_age==48), defer to hop_age==96
-                         * as a fallback so we still get one classification
-                         * per track without classifying an empty buffer. */
-                        if (obj->yamnet && obj->topk_count[iTrackMax] == 0) {
-                            unsigned int ha  = obj->trackSpectra[iTrackMax].hop_age;
-                            unsigned int cnt = obj->trackSpectra[iTrackMax].count;
-                            if ((ha == 48 && cnt >= 6) || ha == 96) {
-                                classify_track_hop(obj, iTrackMax,
-                                                   1 /*early_hop*/, nFramesPerTrack);
-                            }
-                        }
-
                     }
 
                 }        
@@ -1608,156 +1577,6 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
     }
 
 
-/**
- * Assemble a 96-frame YAMNet patch from a track's circular buffer and
- * run YAMNet classification.  Called from two sites:
- *   1. Activity loop (early_hop=1, hop_age==48, topk_count==0) — fires even
- *      when no SSL pot was ever assigned to the track (fixes frame_count=1 bug).
- *   2. push_pot_to_track_buffer (early_hop=0) — normal 50% overlap hops once
- *      enough spectral data has accumulated (count >= 96).
- *
- * @param iTrack  track SLOT index (0..nTracksMax-1), same as iTrackMax caller.
- */
-static void classify_track_hop(mod_sst_obj *obj,
-                                unsigned int iTrack,
-                                int early_hop,
-                                unsigned int nFramesPerTrack) {
-    if (!obj->yamnet) return;
-
-    unsigned long long trackID = obj->ids[iTrack];
-    unsigned int count = obj->trackSpectra[iTrack].count;
-
-    const unsigned int YAMNET_BINS = 257;
-    if (obj->halfFrameSize != YAMNET_BINS) {
-        printf("[ERROR] halfFrameSize=%u but YAMNet expects %u bins. Fix frameSize to 512.\n",
-               obj->halfFrameSize, YAMNET_BINS);
-        return;
-    }
-
-    printf("[DEBUG] Track %llu hop_age=%u count=%u - Running YAMNet (early=%d)\n",
-           trackID, obj->trackSpectra[iTrack].hop_age, count, early_hop);
-
-    /* ---- Assemble 96×257 patch ------------------------------------------ */
-    float patch[96 * YAMNET_BINS];
-    if (early_hop) {
-        /* Zero-fill the "missing" first half; copy up to 48 real frames */
-        memset(patch, 0, sizeof(float) * 48 * YAMNET_BINS);
-        for (unsigned int i = 0; i < 48; i++) {
-            unsigned int f = i % nFramesPerTrack;
-            if (obj->trackSpectra[iTrack].buffer[f]) {
-                memcpy(&patch[(48 + i) * YAMNET_BINS],
-                       obj->trackSpectra[iTrack].buffer[f],
-                       sizeof(float) * YAMNET_BINS);
-            } else {
-                memset(&patch[(48 + i) * YAMNET_BINS], 0, sizeof(float) * YAMNET_BINS);
-            }
-        }
-    } else {
-        /* Normal hop: last 96 frames, NULL-safe (pre-alloc buffer is always valid) */
-        for (unsigned int i = 0; i < 96; i++) {
-            unsigned int f = (count >= 96) ? (count - 96 + i) % nFramesPerTrack
-                                           : i % nFramesPerTrack;
-            if (obj->trackSpectra[iTrack].buffer[f]) {
-                memcpy(&patch[i * YAMNET_BINS],
-                       obj->trackSpectra[iTrack].buffer[f],
-                       sizeof(float) * YAMNET_BINS);
-            } else {
-                memset(&patch[i * YAMNET_BINS], 0, sizeof(float) * YAMNET_BINS);
-            }
-        }
-    }
-
-    /* ---- Optional .bin sidecar (sim_mode) --------------------------------- */
-    if (obj->sim_mode == 1) {
-        ensure_log_dir_exists(obj->classifier_log_dir);
-        snprintf(obj->last_patch_path[iTrack], 512,
-                 "%s/patch_%llu_%llu.bin",
-                 obj->classifier_log_dir, trackID, obj->in1->timeStamp);
-        FILE *bin_fp = fopen(obj->last_patch_path[iTrack], "wb");
-        if (bin_fp) {
-            fwrite(patch, sizeof(float), 96 * YAMNET_BINS, bin_fp);
-            fclose(bin_fp);
-        } else {
-            perror("[WARN] Failed to write .bin sidecar");
-            obj->last_patch_path[iTrack][0] = '\0';
-        }
-    } else {
-        obj->last_patch_path[iTrack][0] = '\0';
-    }
-
-    /* ---- YAMNet Top-K classification -------------------------------------- */
-    int class_id = -1;
-    const char *class_name = NULL;
-    float confidence = 0.0f;
-    int topk_ids[TOPK];
-    float topk_confs[TOPK];
-
-    if (yamnet_classify_patch_topk(obj->yamnet, patch, topk_ids, topk_confs, TOPK)) {
-        int hop_idx = obj->topk_head[iTrack];
-        topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
-        hop->timestamp = obj->in1->timeStamp;
-        for (int k = 0; k < TOPK; k++) {
-            hop->class_ids[k]   = topk_ids[k];
-            hop->confidences[k] = topk_confs[k];
-        }
-        obj->topk_head[iTrack] = (hop_idx + 1) % ROLLING_HOPS;
-        if (obj->topk_count[iTrack] < ROLLING_HOPS) obj->topk_count[iTrack]++;
-
-        class_id   = topk_ids[0];
-        confidence = topk_confs[0];
-        class_name = yamnet_class_name_from_id(obj->yamnet, class_id);
-
-        printf("[YAMNET Top-K] Track %llu: Top5=[", trackID);
-        for (int k = 0; k < TOPK; k++) {
-            const char *cn = yamnet_class_name_from_id(obj->yamnet, topk_ids[k]);
-            printf("%s(%.3f)%s", cn, topk_confs[k], k < TOPK - 1 ? ", " : "");
-        }
-        printf("]\n");
-
-        obj->last_class_id[iTrack]   = class_id;
-        obj->last_class_conf[iTrack] = confidence;
-        obj->last_class_ts[iTrack]   = obj->in1->timeStamp;
-
-    } else if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
-        printf("[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
-               trackID, class_name ? class_name : "unknown", class_id, confidence);
-
-        int hop_idx = obj->topk_head[iTrack];
-        topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
-        hop->timestamp = obj->in1->timeStamp;
-        hop->class_ids[0]   = class_id;
-        hop->confidences[0] = confidence;
-        for (int k = 1; k < TOPK; k++) {
-            hop->class_ids[k]   = -1;
-            hop->confidences[k] = 0.0f;
-        }
-        obj->topk_head[iTrack] = (hop_idx + 1) % ROLLING_HOPS;
-        if (obj->topk_count[iTrack] < ROLLING_HOPS) obj->topk_count[iTrack]++;
-
-        obj->last_class_id[iTrack]   = class_id;
-        obj->last_class_conf[iTrack] = confidence;
-        obj->last_class_ts[iTrack]   = obj->in1->timeStamp;
-    }
-
-    /* ---- Acceptance + state upgrade --------------------------------------- */
-    const float threshold = 0.30f;
-    if (class_name && confidence > threshold) {
-        float tx = 0.0f, ty = 0.0f, tz = 0.0f;
-        if (obj->out != NULL && obj->out->tracks != NULL) {
-            unsigned int idx = iTrack * 3;
-            tx = obj->out->tracks->array[idx + 0];
-            ty = obj->out->tracks->array[idx + 1];
-            tz = obj->out->tracks->array[idx + 2];
-        }
-        printf("[SST Audio Event] pos=(%6.2f, %6.2f, %6.2f) class=%s conf=%.2f\n",
-               tx, ty, tz, class_name, confidence);
-        if (obj->type[iTrack] == 'P' && confidence > threshold) {
-            obj->type[iTrack] = 'A';
-            printf("[SST UPGRADE] Track %llu: P -> A (confidence %.2f)\n", trackID, confidence);
-        }
-    }
-}
-
 void push_pot_to_track_buffer(mod_sst_obj* obj,
                               unsigned int iPot,
                               unsigned int iTrack,
@@ -1800,7 +1619,6 @@ void push_pot_to_track_buffer(mod_sst_obj* obj,
     if (obj->ids[iTrack] == 0) {
         obj->ids[iTrack] = trackID;
         obj->trackSpectra[iTrack].count = 0;
-        obj->trackSpectra[iTrack].hop_age = 0;
         obj->trackSpectra[iTrack].lastFrameSeen = obj->in1->timeStamp;
         obj->trackSpectra[iTrack].id = trackID;
         obj->trackSpectra[iTrack].type = 'P';
@@ -1843,13 +1661,151 @@ void push_pot_to_track_buffer(mod_sst_obj* obj,
 
         count = obj->trackSpectra[iTrack].count;
 
-        // Normal 50% overlap hops delegated to classify_track_hop().
-        // The early hop (hop_age==48) is now handled unconditionally in the
-        // Activity loop, so it fires even for tracks that never win a pot
-        // coherence score (fixes frame_count stuck at 1 for weak sources).
-        int normal_hop = (count >= 96 && (count - 96) % 48 == 0);
-        if (normal_hop) {
-            classify_track_hop(obj, iTrack, 0 /*normal_hop*/, nFramesPerTrack);
+        // Classify every 48 frames once we have the first full 96-frame window.
+        // This gives true 50% overlap: hops at count=96,144,192,240,288,336...
+        // Each hop covers ~0.96s; 6 hops span ~3.36s of unique audio.
+        if (count >= 96 && (count - 96) % 48 == 0) {
+            // YAMNet expects 96x257 frames
+            const unsigned int YAMNET_BINS = 257;
+            
+            // Verify spectrum size matches YAMNet's requirements
+            if (obj->halfFrameSize != YAMNET_BINS) {
+                if (debug) {
+                    printf("[ERROR] halfFrameSize=%u but YAMNet expects %u bins. Fix frameSize in config to 512.\n",
+                           obj->halfFrameSize, YAMNET_BINS);
+                }
+                return;
+            }
+            
+            // Flatten last 96 frames into contiguous patch
+            printf("[DEBUG] Track %llu frame count=%u - Running YAMNet classification\n", trackID, count);
+            float patch[96 * YAMNET_BINS];
+            for (unsigned int i = 0; i < 96; i++) {
+                unsigned int f = (count - 96 + i) % nFramesPerTrack;
+                memcpy(&patch[i * YAMNET_BINS],
+                       obj->trackSpectra[iTrack].buffer[f],
+                       sizeof(float) * YAMNET_BINS);
+            }
+
+            // ---------------------------------------------------------------
+            // SIM MODE: Write 96×257 float32 .bin sidecar for this hop.
+            // Load in Python: np.fromfile(path, dtype=np.float32).reshape(96,257)
+            // Stitch 6 of these with AudioReconstructor.reconstruct_multi_frame()
+            // to get ~3s of listenable audio. Skipped on Pi (sim_mode==0).
+            // ---------------------------------------------------------------
+            if (obj->sim_mode == 1) {
+                ensure_log_dir_exists(obj->classifier_log_dir);
+                snprintf(obj->last_patch_path[iTrack], 512,
+                         "%s/patch_%llu_%llu.bin",
+                         obj->classifier_log_dir, trackID, obj->in1->timeStamp);
+                FILE *bin_fp = fopen(obj->last_patch_path[iTrack], "wb");
+                if (bin_fp) {
+                    fwrite(patch, sizeof(float), 96 * YAMNET_BINS, bin_fp);
+                    fclose(bin_fp);
+                } else {
+                    perror("[WARN] Failed to write .bin sidecar");
+                    obj->last_patch_path[iTrack][0] = '\0';
+                }
+            } else {
+                obj->last_patch_path[iTrack][0] = '\0';
+            }
+
+            int class_id;
+            const char* class_name;   // plain C string
+            float confidence;
+
+            // ===============================================================
+            // TOP-K CLASSIFICATION & ROLLING HISTORY BUFFER
+            // ===============================================================
+            int topk_ids[TOPK];
+            float topk_confs[TOPK];
+            
+            // Call Top-K patch-based C API
+            if (yamnet_classify_patch_topk(obj->yamnet, patch, topk_ids, topk_confs, TOPK)) {
+                // Store Top-K results in rolling buffer
+                int hop_idx = obj->topk_head[iTrack];
+                topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
+                
+                hop->timestamp = obj->in1->timeStamp;
+                for (int k = 0; k < TOPK; k++) {
+                    hop->class_ids[k] = topk_ids[k];
+                    hop->confidences[k] = topk_confs[k];
+                }
+                
+                // Advance circular buffer
+                obj->topk_head[iTrack] = (hop_idx + 1) % ROLLING_HOPS;
+                if (obj->topk_count[iTrack] < ROLLING_HOPS) {
+                    obj->topk_count[iTrack]++;
+                }
+                
+                // Update primary classification (top-1 for backward compatibility)
+                class_id = topk_ids[0];
+                confidence = topk_confs[0];
+                class_name = yamnet_class_name_from_id(obj->yamnet, class_id);
+                
+                printf("[YAMNET Top-K] Track %llu: Top5=[", trackID);
+                for (int k = 0; k < TOPK; k++) {
+                    const char* cn = yamnet_class_name_from_id(obj->yamnet, topk_ids[k]);
+                    printf("%s(%.3f)%s", cn, topk_confs[k], k < TOPK-1 ? ", " : "");
+                }
+                printf("]\n");
+                
+                // Update last class tracking
+                obj->last_class_id[iTrack] = class_id;
+                obj->last_class_conf[iTrack] = confidence;
+                obj->last_class_ts[iTrack] = obj->in1->timeStamp;
+            } else if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
+                // Fallback to single-class — still populate the rolling buffer
+                // so topk_count advances and the event gate can be satisfied.
+                printf("[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
+                       trackID, class_name ? class_name : "unknown", class_id, confidence);
+
+                int hop_idx = obj->topk_head[iTrack];
+                topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
+                hop->timestamp = obj->in1->timeStamp;
+                hop->class_ids[0]   = class_id;
+                hop->confidences[0] = confidence;
+                for (int k = 1; k < TOPK; k++) {
+                    hop->class_ids[k]   = -1;
+                    hop->confidences[k] = 0.0f;
+                }
+                obj->topk_head[iTrack] = (hop_idx + 1) % ROLLING_HOPS;
+                if (obj->topk_count[iTrack] < ROLLING_HOPS)
+                    obj->topk_count[iTrack]++;
+
+                obj->last_class_id[iTrack]   = class_id;
+                obj->last_class_conf[iTrack]  = confidence;
+                obj->last_class_ts[iTrack]    = obj->in1->timeStamp;
+            }
+            // ===============================================================
+            
+            // Simplified classification acceptance (no streaks needed with rolling buffer)
+            const float threshold = 0.30f;
+            if (confidence > threshold) {
+                // Fetch current (Kalman) position for this track
+                float tx = 0.0f, ty = 0.0f, tz = 0.0f;
+                if (obj->out != NULL && obj->out->tracks != NULL) {
+                    unsigned int idx = iTrack * 3;
+                    tx = obj->out->tracks->array[idx + 0];
+                    ty = obj->out->tracks->array[idx + 1];
+                    tz = obj->out->tracks->array[idx + 2];
+                }
+
+                printf("[SST Audio Event] pos=(%6.2f, %6.2f, %6.2f) class=%s conf=%.2f\n",
+                       tx, ty, tz,
+                       class_name ? class_name : "(unknown)",
+                       confidence);
+
+                // Upgrade P type to A if confidence is strong
+                if (obj->type[iTrack] == 'P' && confidence > threshold) {
+                    obj->type[iTrack] = 'A';
+                    printf("[SST UPGRADE] Track %llu: P -> A (confidence %.2f)\n",
+                           trackID, confidence);
+                }
+            } else if (debug) {
+                printf("[SST DEBUG] Track %llu: %s (%.2f) below threshold %.2f\n",
+                       trackID, class_name ? class_name : "unknown", confidence, threshold);
+            }
         }
 
         // Optional: keep your bucket analysis/debug print here
@@ -1864,7 +1820,6 @@ void reset_track_slot(mod_sst_obj *obj, unsigned int iTrackMax, unsigned int nFr
     obj->ids[iTrackMax] = 0;
     obj->trackSpectra[iTrackMax].id = 0;
     obj->trackSpectra[iTrackMax].count = 0;
-    obj->trackSpectra[iTrackMax].hop_age = 0;
     obj->trackSpectra[iTrackMax].type = 0;
     obj->trackSpectra[iTrackMax].lastFrameSeen = 0;
     strcpy(obj->tags[iTrackMax], "");
@@ -2032,8 +1987,7 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
 
         json_object_object_add(track_obj, "activity",    json_object_new_double(obj->sourceActivities[i]));
         json_object_object_add(track_obj, "type",        json_object_new_string_len(&obj->type[i], 1));
-        json_object_object_add(track_obj, "frame_count", json_object_new_int(obj->trackSpectra[i].hop_age));
-        json_object_object_add(track_obj, "spectral_count", json_object_new_int(obj->trackSpectra[i].count));
+        json_object_object_add(track_obj, "frame_count", json_object_new_int(obj->trackSpectra[i].count));
 
         /* Event gate — emit event fields once the track has at least one
          * classification (topk_count >= 1).  We do NOT require a full buffer
@@ -2046,18 +2000,7 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
         sst_event_t ev = {-1, 0, 0.0f, 0.0f};
         if (obj->topk_count[i] >= 1) {
             ev = compute_event(obj, i);
-            printf("[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d, ev.votes=%d, min_event_votes=%d\n",
-                   obj->ids[i], obj->topk_count[i], ev.class_id, ev.votes, obj->min_event_votes);
-            // Force event output if we have ANY classification data
-            // The analyzer will handle filtering - our job is to emit all data
-            if (ev.class_id >= 0 && ev.votes >= 1) {
-                has_event = 1;
-            } else if (ev.class_id >= 0) {
-                // Even with votes=0, emit if we have a class_id
-                printf("[EVENT_WARN] Track %llu has class_id=%d but votes=%d, forcing output\n",
-                       obj->ids[i], ev.class_id, ev.votes);
-                has_event = 1;
-            }
+            if (ev.votes >= obj->min_event_votes) has_event = 1;
         }
 
         if (has_event) {
@@ -2292,8 +2235,7 @@ void log_classification_event(mod_sst_obj *obj, unsigned int iTrack, unsigned lo
     json_object *event = json_object_new_object();
     json_object_object_add(event, "timeStamp", json_object_new_int64(obj->in1->timeStamp));
     json_object_object_add(event, "track_id", json_object_new_int64(trackID));
-    json_object_object_add(event, "frame_count", json_object_new_int(obj->trackSpectra[iTrack].hop_age));
-    json_object_object_add(event, "spectral_count", json_object_new_int(obj->trackSpectra[iTrack].count));
+    json_object_object_add(event, "frame_count", json_object_new_int(obj->trackSpectra[iTrack].count));
     json_object_object_add(event, "type", json_object_new_string_len(&obj->type[iTrack], 1));
     json_object_object_add(event, "tag", json_object_new_string(obj->tags[iTrack]));
     json_object_object_add(event, "activity", json_object_new_double(obj->sourceActivities[iTrack]));
