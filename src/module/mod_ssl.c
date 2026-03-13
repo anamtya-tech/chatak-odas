@@ -160,6 +160,29 @@
                                           obj->scans->pairs,
                                           obj->products);        
 
+                /* ── Option 3: HPF mask on SSL cross-spectrum ───────────────
+                 * Zero cross-spectral bins below freqMinSSL Hz so that only
+                 * the localizable (above-aliasing) content votes in SRP-PHAT.
+                 * SSS beamformer and .bin training output use obj->in->freqs
+                 * directly and are completely unaffected by this mask.
+                 * 4-mic square array: max spacing 64mm → aliasing at 2680 Hz.
+                 * freqMinBin = freqMinSSL / (fS / frameSize)
+                 *            = 1200 / (16000/512) = 38.4 → bin 38
+                 */
+                {
+                    float freqMinSSL = 1200.0f;
+                    unsigned int freqMinBin = (unsigned int)
+                        (freqMinSSL * (float)obj->halfFrameSize / ((float)obj->fS / 2.0f));
+                    unsigned int iSSLSig, iSSLBin;
+                    for (iSSLSig = 0; iSSLSig < obj->products->nSignals; iSSLSig++) {
+                        for (iSSLBin = 0; iSSLBin < freqMinBin; iSSLBin++) {
+                            obj->products->array[iSSLSig][iSSLBin * 2 + 0] = 0.0f;
+                            obj->products->array[iSSLSig][iSSLBin * 2 + 1] = 0.0f;
+                        }
+                    }
+                }
+                /* ─────────────────────────────────────────────────────────── */
+
                 freq2freq_interpolate_process(obj->freq2freq_interpolate,
                                               obj->products,
                                               obj->productsInterp);

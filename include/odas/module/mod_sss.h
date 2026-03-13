@@ -64,6 +64,8 @@
 
         char enabled;
 
+        unsigned int ssbShiftBins;   /* pre-computed from cfg->ssbShiftHz; 0 = disabled */
+
 
 
         beampatterns_obj * sep_ds_beampatterns_mics;
@@ -170,6 +172,8 @@
         float pf_ss_Gmin;
         float pf_ss_Gmid;
         float pf_ss_Gslope;
+
+        unsigned int ssbShiftHz;     /* 0 = disabled; >0 = reverse SSB shift before YAMNet */
 
     } mod_sss_cfg;
 

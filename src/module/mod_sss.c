@@ -5,6 +5,31 @@
     
     #include <module/mod_sss.h>
 
+    /* ── SSB reverse-shift for YAMNet patch ─────────────────────────────────
+     * patch   : float array [nFrames * halfFrameSize] (magnitude spectrum)
+     * nFrames : number of time frames (96)
+     * H       : halfFrameSize (257)
+     * B       : ssbShiftBins (e.g. 64 for 2000 Hz shift with N=512, fS=16000)
+     *
+     * Reverse: shifted_back[t][b] = patch[t][b + B], zeros at top B bins.
+     * Applied in-place.
+     */
+    static void ssb_unshift_patch(float * patch, unsigned int nFrames,
+                                   unsigned int H, unsigned int B) {
+        if (B == 0 || B >= H) return;
+        unsigned int t, b;
+        for (t = 0; t < nFrames; t++) {
+            float * row = patch + t * H;
+            for (b = 0; b < H - B; b++) {
+                row[b] = row[b + B];
+            }
+            for (b = H - B; b < H; b++) {
+                row[b] = 0.0f;
+            }
+        }
+    }
+    /* ───────────────────────────────────────────────────────────────── */
+
     #include <stdio.h>
 
     FILE * fidTmp1;
@@ -21,6 +46,15 @@
         obj->halfFrameSize = msg_spectra_config->halfFrameSize;
         obj->mode_sep = mod_sss_config->mode_sep;
         obj->mode_pf = mod_sss_config->mode_pf;
+
+        /* Pre-compute SSB reverse-shift in bins */
+        if (mod_sss_config->ssbShiftHz > 0 && msg_spectra_config->fS > 0) {
+            unsigned int frameSize = 2 * (msg_spectra_config->halfFrameSize - 1);
+            obj->ssbShiftBins = (unsigned int)(
+                (float)mod_sss_config->ssbShiftHz * (float)frameSize / (float)msg_spectra_config->fS + 0.5f);
+        } else {
+            obj->ssbShiftBins = 0;
+        }
 
         obj->nFramesPerTrack = 96;  // default FIFO length
         obj->trackSpectra = malloc(sizeof(sss_track_spectrum_obj) * obj->nSeps);
@@ -929,6 +963,8 @@
         cfg->samplerate = (samplerate_obj *) NULL;
         cfg->soundspeed = (soundspeed_obj *) NULL;
 
+        cfg->ssbShiftHz = 0;
+
         return cfg;
 
     }
@@ -1125,6 +1161,11 @@ void push_track_to_buffer(mod_sss_obj* obj,
                 if (debug) {
                     printf("[DEBUG] Patch bins=%u, non-zero=%u\n",
                            total_bins, nonzero_bins);
+                }
+
+                /* Reverse SSB shift so YAMNet sees original spectrum */
+                if (obj->ssbShiftBins > 0) {
+                    ssb_unshift_patch(patch, obj->nFramesPerTrack, obj->halfFrameSize, obj->ssbShiftBins);
                 }
 
                 if (yamnet_classify_patch(obj->yamnet, patch,

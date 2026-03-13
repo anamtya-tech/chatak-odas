@@ -1626,6 +1626,10 @@
 
             cfg->pf_ss_Gslope = parameters_lookup_float(fileConfig, "sss.ss.Gslope");
 
+        /* Optional: reverse SSB shift in Hz before YAMNet (default 0 = disabled) */
+        cfg->ssbShiftHz = (unsigned int) parameters_lookup_int_default(
+            fileConfig, "sss.ssbShiftHz", 0);
+
         return cfg;      
 
     }
