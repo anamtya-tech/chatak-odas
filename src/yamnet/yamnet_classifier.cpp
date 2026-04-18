@@ -29,8 +29,12 @@ public:
     // Frame buffer for accumulating spectra
     std::vector<std::vector<float>> frame_buffer;
     int frames_since_last_classification;
+
+    // Actual number of output classes — read from TFLite output tensor at
+    // LoadModel time so fine-tuned models with != 521 classes work correctly.
+    int num_classes;
     
-    Impl() : frames_since_last_classification(0) {
+    Impl() : frames_since_last_classification(0), num_classes(YAMNet::Params::NUM_CLASSES) {
         InitializeHannWindow();
         InitializeMelFilterbank();
     }
@@ -134,10 +138,10 @@ bool ClassifyPatch(const float* patch_96x257,
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
     const float* scores = static_cast<const float*>(TfLiteTensorData(output));
 
-    // Find top class
+    // Find top class — use runtime num_classes, not hardcoded 521
     int top_idx = 0;
     float top_score = scores[0];
-    for (int i = 1; i < YAMNet::Params::NUM_CLASSES; i++) {
+    for (int i = 1; i < num_classes; i++) {
         if (scores[i] > top_score) {
             top_score = scores[i];
             top_idx = i;
@@ -179,15 +183,15 @@ bool ClassifyPatchTopK(const float* patch_96x257,
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
     const float* scores = static_cast<const float*>(TfLiteTensorData(output));
 
-    // Create pairs of (score, index) for sorting
+    // Create pairs of (score, index) for sorting — use runtime num_classes
     std::vector<std::pair<float, int>> score_index_pairs;
-    score_index_pairs.reserve(YAMNet::Params::NUM_CLASSES);
-    for (int i = 0; i < YAMNet::Params::NUM_CLASSES; i++) {
+    score_index_pairs.reserve(num_classes);
+    for (int i = 0; i < num_classes; i++) {
         score_index_pairs.push_back({scores[i], i});
     }
 
     // Partial sort to get top k
-    int actual_k = std::min(k, YAMNet::Params::NUM_CLASSES);
+    int actual_k = std::min(k, num_classes);
     std::partial_sort(score_index_pairs.begin(), 
                      score_index_pairs.begin() + actual_k,
                      score_index_pairs.end(),
@@ -241,11 +245,11 @@ bool ClassifyFromBuffer(int& class_id_out,
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
     const float* scores = static_cast<const float*>(TfLiteTensorData(output));
 
-    // Find top class
+    // Find top class — use runtime num_classes, not hardcoded 521
     int top_idx = 0;
     float top_score = scores[0];
 
-    for (int i = 1; i < YAMNet::Params::NUM_CLASSES; i++) {
+    for (int i = 1; i < num_classes; i++) {
         if (scores[i] > top_score) {
             top_score = scores[i];
             top_idx = i;
@@ -253,7 +257,7 @@ bool ClassifyFromBuffer(int& class_id_out,
     }
 
     class_id_out = top_idx;
-    class_name_out = (top_idx < class_names.size()) ?
+    class_name_out = (top_idx < (int)class_names.size()) ?
                      class_names[top_idx] : "Unknown";
     confidence_out = top_score;
 
@@ -302,6 +306,14 @@ bool YAMNetClassifier::LoadModel(const char* tflite_model_path) {
         return false;
     }
 
+    // Read the actual output class count from the model rather than assuming
+    // the hardcoded YAMNet::Params::NUM_CLASSES (521). Fine-tuned models have
+    // a different number of output neurons.
+    const TfLiteTensor* out_t = TfLiteInterpreterGetOutputTensor(pImpl->interpreter, 0);
+    int out_dims = TfLiteTensorNumDims(out_t);
+    pImpl->num_classes = TfLiteTensorDim(out_t, out_dims - 1);
+    std::cout << "  YAMNet output classes (from model): " << pImpl->num_classes << std::endl;
+
     return true;
 }
 
@@ -336,10 +348,20 @@ bool YAMNetClassifier::LoadClassNames(const char* csv_path) {
         
         if (fields.size() >= 3) {
             pImpl->class_names.push_back(fields[2]); // display_name
+        } else if (fields.size() == 2) {
+            // 2-column fallback: index,display_name
+            pImpl->class_names.push_back(fields[1]);
         }
     }
-    
-    return pImpl->class_names.size() == YAMNet::Params::NUM_CLASSES;
+
+    // Accept any non-empty class list. For fine-tuned models the count will
+    // differ from YAMNet::Params::NUM_CLASSES (521) — that is expected.
+    if (pImpl->class_names.empty()) {
+        std::cerr << "LoadClassNames: no classes read from " << csv_path << std::endl;
+        return false;
+    }
+    std::cout << "  YAMNet class names loaded: " << pImpl->class_names.size() << std::endl;
+    return true;
 }
 
 bool YAMNetClassifier::AddFrame(const float* magnitude_spectrum_257bins,
@@ -393,8 +415,8 @@ int YAMNetClassifier::GetNumClasses() const {
 }
 
 bool YAMNetClassifier::IsReady() const {
-    return pImpl->interpreter != nullptr && 
-           pImpl->class_names.size() == YAMNet::Params::NUM_CLASSES;
+    return pImpl->interpreter != nullptr &&
+           !pImpl->class_names.empty();
 }
 
 void YAMNetClassifier::PrintModelInfo() const {
