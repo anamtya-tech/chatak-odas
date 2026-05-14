@@ -109,63 +109,82 @@ This pulls in `third_party/cJSON` (required by the build).
 
 ---
 
-## 3. TensorFlow Lite C library  ← **the most common pain point**
+## 3. TensorFlow Lite C library
 
 The build requires:
-- Headers: `tensorflow/lite/c/c_api.h` (and the rest of the TFLite C API)
+- Headers: `tensorflow/lite/c/c_api.h`
 - Shared library: `libtensorflowlite_c.so`
 
-CMakeLists.txt looks for both under `/usr/local/` by default:
-- headers → `/usr/local/include/tensorflow/…`
-- library → `/usr/local/lib/libtensorflowlite_c.so`
+### Raspberry Pi / aarch64 — bundled, no extra steps needed
 
-### Option A — Build TFLite from source (recommended, works on any arch)
+The repo ships a pre-built aarch64 `.so` (TF 2.17.0, 3.5 MB, stored in Git LFS)
+at `third_party/tflite/aarch64/`. CMakeLists.txt detects `aarch64` automatically
+and uses it — you do not need to install or build anything extra.
 
-This takes ~20–40 min on a Pi 4 but produces a native `.so` for your exact CPU.
+After `git clone --recurse-submodules`, just pull the LFS object:
 
 ```bash
-# Install Bazel (use Bazelisk for easy version management)
-sudo apt install -y wget
-wget -q https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-arm64 \
-    -O /usr/local/bin/bazel          # use bazelisk-linux-amd64 on x86-64
+git lfs install
+git lfs pull
+```
+
+Then go straight to [Section 5 — Build](#5-build). `cmake` will print:
+
+```
+-- Using bundled aarch64 TFLite: .../third_party/tflite/aarch64
+```
+
+If Git LFS is not available on your network, copy the `.so` manually from
+another machine:
+
+```bash
+# On the Pi, from another machine or USB stick:
+cp libtensorflowlite_c.so \
+    /path/to/chatak-odas/third_party/tflite/aarch64/libtensorflowlite_c.so
+```
+
+---
+
+### x86-64 dev machine — install system-wide
+
+The bundled `.so` is aarch64-only. On x86-64 you need the library under
+`/usr/local/`:
+
+**Option A — Use a pre-built binary (fastest)**
+
+If you have a matching `libtensorflowlite_c.so` from another x86-64 build (e.g.
+the Azure VM that cross-compiled the Pi version):
+
+```bash
+sudo cp /path/to/libtensorflowlite_c.so /usr/local/lib/
+sudo ldconfig
+sudo mkdir -p /usr/local/include/tensorflow/lite/c
+sudo cp /path/to/c_api.h  /usr/local/include/tensorflow/lite/c/
+sudo cp /path/to/common.h /usr/local/include/tensorflow/lite/c/
+```
+
+**Option B — Build TFLite from source on the machine**
+
+Takes ~10 min on a modern x86-64 machine:
+
+```bash
+sudo apt install -y wget default-jdk-headless
+wget -q https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+    -O /usr/local/bin/bazel
 sudo chmod +x /usr/local/bin/bazel
 
-# Clone TensorFlow at the same version used here (2.17.x)
 git clone --depth 1 --branch v2.17.0 \
     https://github.com/tensorflow/tensorflow.git ~/tensorflow
-
 cd ~/tensorflow
 
-# Build the C shared library
-bazel build --config=opt \
-    //tensorflow/lite/c:libtensorflowlite_c
+bazel build --config=opt //tensorflow/lite/c:libtensorflowlite_c
 
-# Install headers and library system-wide
+sudo mkdir -p /usr/local/include/tensorflow
 sudo cp -r tensorflow/lite /usr/local/include/tensorflow/lite
 sudo cp bazel-bin/tensorflow/lite/c/libtensorflowlite_c.so \
     /usr/local/lib/libtensorflowlite_c.so
 sudo ldconfig
 ```
-
-### Option B — Use a pre-built binary (faster, x86-64 only)
-
-Pre-built TFLite C libraries for common platforms are sometimes published by the
-TensorFlow team. If you have one (e.g. from another build host):
-
-```bash
-# Copy the .so
-sudo cp /path/to/libtensorflowlite_c.so /usr/local/lib/
-sudo ldconfig
-
-# Extract or symlink the matching headers
-# (must match the exact TFLite version of the .so)
-sudo cp -r /path/to/tensorflow/lite /usr/local/include/tensorflow/lite
-```
-
-### Option C — Raspberry Pi: cross-compile on a faster machine
-
-Cross-compiling on an x86-64 host and copying the result to the Pi is much
-faster than building on the Pi itself. See the [Cross-compilation](#6-cross-compilation-arm--raspberry-pi) section below.
 
 ---
 
