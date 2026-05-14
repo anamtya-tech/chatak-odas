@@ -227,23 +227,17 @@ Successful output ends with:
 
 The binary is at `build/bin/odaslive`.
 
-### If cmake cannot find TFLite headers
+### If cmake cannot find TFLite headers (x86-64 only)
 
-The CMakeLists.txt hard-codes `/usr/local/include` and `/usr/local/lib`. If your
-TFLite install is elsewhere, either:
+On **aarch64 the bundled headers are used automatically** — no action needed.
+
+On **x86-64**, CMakeLists.txt looks under `/usr/local/`. If your TFLite install
+is elsewhere, symlink it:
 
 ```bash
-# Symlink into the expected location
 sudo ln -s /your/tflite/include/tensorflow /usr/local/include/tensorflow
 sudo ln -s /your/tflite/libtensorflowlite_c.so /usr/local/lib/libtensorflowlite_c.so
 sudo ldconfig
-```
-
-or patch the two lines in `CMakeLists.txt`:
-
-```cmake
-include_directories(/your/tflite/include)
-link_directories(/your/tflite/lib)
 ```
 
 ---
@@ -341,7 +335,7 @@ Build on an x86-64 host, run on the Pi.
 | ALSA | `libasound2-dev` | Audio capture |
 | PulseAudio | `libpulse-dev` | PulseAudio source |
 | json-c | `libjson-c-dev` | JSON messaging |
-| TFLite C API | *(build from source — see §3)* | YAMNet inference |
+| TFLite C API | *(bundled for aarch64; build from source on x86-64 — see §3)* | YAMNet inference |
 | cJSON | *(git submodule)* | JSON in odaslive |
 
 ---
@@ -350,11 +344,19 @@ Build on an x86-64 host, run on the Pi.
 
 ### `fatal error: tensorflow/lite/c/c_api.h: No such file or directory`
 
-TFLite headers are not installed. Follow **Section 3** above.
+**On aarch64 (Pi):** the bundled headers should be present in `third_party/tflite/include/`. If missing, run `git lfs pull` (and `sudo apt install -y git-lfs` first if needed).
+
+**On x86-64:** TFLite headers are not installed system-wide. Follow **Section 3** above.
+
+### `fatal error: tensorflow/lite/core/c/c_api.h: No such file or directory`
+
+The bundled header set is incomplete — run `git pull` to get the latest repo which includes the full transitive header closure.
 
 ### `cannot find -ltensorflowlite_c`
 
-The `.so` is missing from `/usr/local/lib`. Copy it there and run `sudo ldconfig`.
+**On aarch64 (Pi):** the bundled `.so` is missing from `third_party/tflite/aarch64/`. Run `git lfs pull`.
+
+**On x86-64:** the `.so` is missing from `/usr/local/lib/`. Copy it there and run `sudo ldconfig`.
 
 ### `pkg_check_modules … REQUIRED fftw3f` fails
 
