@@ -53,6 +53,9 @@ build/seperated.raw
 *.dylib
 *.dll
 *.so.*
+# Exception: bundled pre-built TFLite shared libraries
+!third_party/tflite/**/*.so
+!third_party/tflite/**/*.so.*
 
 
 # Fortran module files

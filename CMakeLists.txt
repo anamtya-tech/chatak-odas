@@ -19,7 +19,6 @@ pkg_check_modules(PC_JSONC REQUIRED json-c)
 
 
 include_directories("${PROJECT_SOURCE_DIR}/include")
-link_directories(/usr/local/lib)
 
 # Compile in release mode if not set
 if(NOT CMAKE_BUILD_TYPE)
@@ -35,8 +34,25 @@ endif()
 include_directories(include/odas)
 include_directories(${PC_JSONC_INCLUDE_DIRS})
 link_directories(${PC_JSONC_LIBRARY_DIRS})
-include_directories(/usr/local/include)
-include_directories(/usr/local/include/tensorflow)
+# ---------------------------------------------------------------------------
+# TFLite: use bundled aarch64 pre-built .so when cross-compiling / on Pi,
+#         otherwise fall back to the system-wide install under /usr/local.
+# ---------------------------------------------------------------------------
+set(TFLITE_BUNDLED_DIR "${PROJECT_SOURCE_DIR}/third_party/tflite")
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64" AND
+   EXISTS "${TFLITE_BUNDLED_DIR}/aarch64/libtensorflowlite_c.so")
+    message(STATUS "Using bundled aarch64 TFLite: ${TFLITE_BUNDLED_DIR}/aarch64")
+    set(TFLITE_INCLUDE_DIR "${TFLITE_BUNDLED_DIR}/include")
+    set(TFLITE_LIB_DIR     "${TFLITE_BUNDLED_DIR}/aarch64")
+else()
+    message(STATUS "Using system TFLite under /usr/local")
+    set(TFLITE_INCLUDE_DIR "/usr/local/include")
+    set(TFLITE_LIB_DIR     "/usr/local/lib")
+endif()
+
+include_directories(${TFLITE_INCLUDE_DIR})
+link_directories(${TFLITE_LIB_DIR})
 
 
 
