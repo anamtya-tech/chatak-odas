@@ -121,9 +121,10 @@ The repo ships a pre-built aarch64 `.so` (TF 2.17.0, 3.5 MB, stored in Git LFS)
 at `third_party/tflite/aarch64/`. CMakeLists.txt detects `aarch64` automatically
 and uses it — you do not need to install or build anything extra.
 
-After `git clone --recurse-submodules`, just pull the LFS object:
+After `git clone --recurse-submodules`, install git-lfs and pull the LFS object:
 
 ```bash
+sudo apt install -y git-lfs
 git lfs install
 git lfs pull
 ```
@@ -193,7 +194,7 @@ sudo ldconfig
 The `.tflite` model is stored in `models/` via **Git LFS**. Pull it after cloning:
 
 ```bash
-git lfs install
+sudo apt install -y git-lfs   # if not already installed (see Section 3)
 git lfs pull
 ```
 
