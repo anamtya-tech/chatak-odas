@@ -1,0 +1,349 @@
+# Setup Guide — Chatak-ODAS
+
+Step-by-step instructions to build and run the repo from scratch on a new machine (x86-64 or Raspberry Pi / ARM).
+
+---
+
+## 1. System packages
+
+Install all apt dependencies in one shot:
+
+First, check your OS and version:
+
+```bash
+cat /etc/os-release
+# KEY fields: NAME, VERSION_ID, VERSION_CODENAME
+```
+
+Then install the packages for your distro:
+
+**Debian 13 "Trixie" / Raspberry Pi OS Trixie (2025+)**
+
+```bash
+sudo apt update
+sudo apt install -y \
+    git cmake build-essential \
+    libfftw3-dev \
+    libconfig-dev \
+    libasound2-dev \
+    libpulse-dev \
+    libjson-c-dev \
+    pkg-config
+```
+
+> On Trixie the 64-bit `time_t` transition is complete. `libasound2-dev` pulls
+> in `libasound2t64` automatically — no manual intervention needed.
+
+**Debian 12 "Bookworm" / Raspberry Pi OS Bookworm (released 2023+)**
+
+```bash
+sudo apt update
+sudo apt install -y \
+    git cmake build-essential \
+    libfftw3-dev \
+    libconfig-dev \
+    libasound2-dev \
+    libpulse-dev \
+    libjson-c-dev \
+    pkg-config
+```
+
+> On Bookworm, `libasound2-dev` pulls in `libasound2t64` automatically due to
+> the 64-bit time_t transition. You do not need to do anything extra.
+
+**Debian 11 "Bullseye" / Raspberry Pi OS Bullseye (older Pi images)**
+
+```bash
+sudo apt update
+sudo apt install -y \
+    git cmake build-essential \
+    libfftw3-dev \
+    libconfig-dev \
+    libasound2-dev \
+    libpulse-dev \
+    libjson-c-dev \
+    pkg-config
+```
+
+> Same package names — Bullseye is fully supported, no differences needed.
+
+**Ubuntu 22.04 / 24.04 (x86-64 development machine)**
+
+```bash
+sudo apt update
+sudo apt install -y \
+    git cmake build-essential \
+    libfftw3-dev \
+    libconfig-dev \
+    libasound2-dev \
+    libpulse-dev \
+    libjson-c-dev \
+    pkg-config
+```
+
+To confirm the ALSA dev package actually installed correctly on any distro:
+
+```bash
+dpkg -l libasound2-dev
+# Should show "ii" (installed) in the first column
+pkg-config --modversion alsa
+# Should print a version like 1.2.11 or 1.2.14
+```
+
+---
+
+## 2. Clone the repo (with submodules)
+
+```bash
+git clone --recurse-submodules https://github.com/anamtya-tech/chatak-odas.git
+cd chatak-odas
+```
+
+If you already cloned without `--recurse-submodules`, init the submodule manually:
+
+```bash
+git submodule update --init --recursive
+```
+
+This pulls in `third_party/cJSON` (required by the build).
+
+---
+
+## 3. TensorFlow Lite C library  ← **the most common pain point**
+
+The build requires:
+- Headers: `tensorflow/lite/c/c_api.h` (and the rest of the TFLite C API)
+- Shared library: `libtensorflowlite_c.so`
+
+CMakeLists.txt looks for both under `/usr/local/` by default:
+- headers → `/usr/local/include/tensorflow/…`
+- library → `/usr/local/lib/libtensorflowlite_c.so`
+
+### Option A — Build TFLite from source (recommended, works on any arch)
+
+This takes ~20–40 min on a Pi 4 but produces a native `.so` for your exact CPU.
+
+```bash
+# Install Bazel (use Bazelisk for easy version management)
+sudo apt install -y wget
+wget -q https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-arm64 \
+    -O /usr/local/bin/bazel          # use bazelisk-linux-amd64 on x86-64
+sudo chmod +x /usr/local/bin/bazel
+
+# Clone TensorFlow at the same version used here (2.17.x)
+git clone --depth 1 --branch v2.17.0 \
+    https://github.com/tensorflow/tensorflow.git ~/tensorflow
+
+cd ~/tensorflow
+
+# Build the C shared library
+bazel build --config=opt \
+    //tensorflow/lite/c:libtensorflowlite_c
+
+# Install headers and library system-wide
+sudo cp -r tensorflow/lite /usr/local/include/tensorflow/lite
+sudo cp bazel-bin/tensorflow/lite/c/libtensorflowlite_c.so \
+    /usr/local/lib/libtensorflowlite_c.so
+sudo ldconfig
+```
+
+### Option B — Use a pre-built binary (faster, x86-64 only)
+
+Pre-built TFLite C libraries for common platforms are sometimes published by the
+TensorFlow team. If you have one (e.g. from another build host):
+
+```bash
+# Copy the .so
+sudo cp /path/to/libtensorflowlite_c.so /usr/local/lib/
+sudo ldconfig
+
+# Extract or symlink the matching headers
+# (must match the exact TFLite version of the .so)
+sudo cp -r /path/to/tensorflow/lite /usr/local/include/tensorflow/lite
+```
+
+### Option C — Raspberry Pi: cross-compile on a faster machine
+
+Cross-compiling on an x86-64 host and copying the result to the Pi is much
+faster than building on the Pi itself. See the [Cross-compilation](#6-cross-compilation-arm--raspberry-pi) section below.
+
+---
+
+## 4. YAMNet model file
+
+The `.tflite` model is stored in `models/` via **Git LFS**. Pull it after cloning:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+If Git LFS is not available, download the model manually:
+
+```bash
+wget -O models/yamnet_core.tflite \
+    https://storage.googleapis.com/anamtya/yamnet_core.tflite
+```
+
+`models/yamnet_class_map.csv` is a plain text file — no LFS needed.
+
+---
+
+## 5. Build
+
+```bash
+# From repo root
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+```
+
+Successful output ends with:
+
+```
+[100%] Linking CXX executable bin/odaslive
+[100%] Built target odaslive
+```
+
+The binary is at `build/bin/odaslive`.
+
+### If cmake cannot find TFLite headers
+
+The CMakeLists.txt hard-codes `/usr/local/include` and `/usr/local/lib`. If your
+TFLite install is elsewhere, either:
+
+```bash
+# Symlink into the expected location
+sudo ln -s /your/tflite/include/tensorflow /usr/local/include/tensorflow
+sudo ln -s /your/tflite/libtensorflowlite_c.so /usr/local/lib/libtensorflowlite_c.so
+sudo ldconfig
+```
+
+or patch the two lines in `CMakeLists.txt`:
+
+```cmake
+include_directories(/your/tflite/include)
+link_directories(/your/tflite/lib)
+```
+
+---
+
+## 6. Runtime config
+
+Generate the working-directory configs (written to `~/sodas/` by default):
+
+```bash
+./scripts/setup_runtime.sh
+```
+
+This expands the `config/runtime/*.cfg.template` files, substituting the repo
+path and GUI path. You can override defaults:
+
+```bash
+./scripts/setup_runtime.sh \
+    --odas-dir /path/to/chatak-odas \
+    --output-dir /path/to/sodas
+```
+
+---
+
+## 7. Run
+
+```bash
+# Live mic (ReSpeaker USB 4-Mic Array)
+build/bin/odaslive -c ~/sodas/local_socket.cfg
+
+# Replay a pre-recorded raw audio file (simulation mode)
+# Terminal 1 — start ODAS
+build/bin/odaslive -c ~/sodas/local_socket.cfg
+
+# Terminal 2 — stream audio
+python3 scripts/vm_socket_emit.py \
+    --audio /path/to/render.raw \
+    --port 10000
+```
+
+---
+
+## 8. Cross-compilation (ARM / Raspberry Pi)
+
+Build on an x86-64 host, run on the Pi.
+
+1. Install the ARM toolchain on the host:
+
+   ```bash
+   sudo apt install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+   ```
+
+2. Build (or obtain) an `aarch64` `libtensorflowlite_c.so` and matching headers.
+
+3. Run cmake with a toolchain file:
+
+   ```bash
+   cmake -B build-arm \
+       -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-linux-gnu.cmake \
+       -DCMAKE_BUILD_TYPE=Release
+   cmake --build build-arm -j$(nproc)
+   ```
+
+   > The repo does not currently ship a toolchain file. A minimal example:
+   >
+   > ```cmake
+   > # cmake/aarch64-linux-gnu.cmake
+   > set(CMAKE_SYSTEM_NAME Linux)
+   > set(CMAKE_SYSTEM_PROCESSOR aarch64)
+   > set(CMAKE_C_COMPILER   aarch64-linux-gnu-gcc)
+   > set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+   > set(CMAKE_FIND_ROOT_PATH /usr/aarch64-linux-gnu)
+   > set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+   > set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+   > set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+   > ```
+
+4. Copy `build-arm/bin/odaslive`, `build-arm/lib/libodas.so`, and
+   `libtensorflowlite_c.so` to the Pi, then run:
+
+   ```bash
+   export LD_LIBRARY_PATH=/path/to/libs:$LD_LIBRARY_PATH
+   ./odaslive -c ~/sodas/local_socket.cfg
+   ```
+
+---
+
+## Quick dependency checklist
+
+| Dependency | apt package | Purpose |
+|---|---|---|
+| cmake ≥ 3.16 | `cmake` | Build system |
+| gcc/g++ (C11 + C++14) | `build-essential` | Compiler |
+| libfftw3 | `libfftw3-dev` | FFT (SSL/SSS) |
+| libconfig | `libconfig-dev` | `.cfg` parsing |
+| ALSA | `libasound2-dev` | Audio capture |
+| PulseAudio | `libpulse-dev` | PulseAudio source |
+| json-c | `libjson-c-dev` | JSON messaging |
+| TFLite C API | *(build from source — see §3)* | YAMNet inference |
+| cJSON | *(git submodule)* | JSON in odaslive |
+
+---
+
+## Common errors
+
+### `fatal error: tensorflow/lite/c/c_api.h: No such file or directory`
+
+TFLite headers are not installed. Follow **Section 3** above.
+
+### `cannot find -ltensorflowlite_c`
+
+The `.so` is missing from `/usr/local/lib`. Copy it there and run `sudo ldconfig`.
+
+### `pkg_check_modules … REQUIRED fftw3f` fails
+
+Install `libfftw3-dev` (provides `fftw3f.pc`).
+
+### `pkg_check_modules … REQUIRED libpulse-simple` fails
+
+Install `libpulse-dev`.
+
+### `git submodule` — cJSON missing
+
+Run `git submodule update --init --recursive` from the repo root.
