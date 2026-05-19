@@ -1422,6 +1422,19 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
                             obj->out->tracks->array[iTrackMax * 3 + 2] = z;
                             obj->out->tracks->ids[iTrackMax] = obj->ids[iTrackMax];
                             strcpy(obj->out->tracks->tags[iTrackMax],obj->tags[iTrackMax]);
+
+                            /* Propagate YAMNet top-1 classification to tracks message */
+                            if (obj->last_class_id[iTrackMax] != -1 && obj->yamnet) {
+                                const char *cname = yamnet_class_name_from_id(obj->yamnet, obj->last_class_id[iTrackMax]);
+                                strncpy(obj->out->tracks->class_name[iTrackMax],
+                                        cname ? cname : "",
+                                        255);
+                                obj->out->tracks->class_name[iTrackMax][255] = '\0';
+                                obj->out->tracks->class_conf[iTrackMax] = obj->last_class_conf[iTrackMax];
+                            } else {
+                                strcpy(obj->out->tracks->class_name[iTrackMax], "");
+                                obj->out->tracks->class_conf[iTrackMax] = 0.0f;
+                            }
                          
                         }
                         

@@ -36,8 +36,8 @@
 
         obj->fp = (FILE *) NULL;
 
-        obj->buffer = (char *) malloc(sizeof(char) * 1024);
-        memset(obj->buffer, 0x00, sizeof(char) * 1024);
+        obj->buffer = (char *) malloc(sizeof(char) * 4096);
+        memset(obj->buffer, 0x00, sizeof(char) * 4096);
         obj->bufferSize = 0;
 
         obj->in = (msg_tracks_obj *) NULL;
@@ -323,29 +323,59 @@
         gettimeofday(&tv, NULL);
         unsigned long long systemTimeMs = (unsigned long long)(tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 
-
         obj->buffer[0] = 0x00;
 
         sprintf(obj->buffer,"%s{\n",obj->buffer);
-        //sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,obj->in->timeStamp);
         sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,systemTimeMs);
         sprintf(obj->buffer,"%s    \"src\": [\n",obj->buffer);
 
         for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
 
-            sprintf(obj->buffer,"%s{ \"id\": %llu, \"tag\": \"%s\", \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f,\"activity\": %1.3f }",
+            const char *cname = (obj->in->tracks->class_name &&
+                                 obj->in->tracks->class_name[iTrack][0])
+                                ? obj->in->tracks->class_name[iTrack] : "";
+            float cconf = obj->in->tracks->class_conf
+                          ? obj->in->tracks->class_conf[iTrack] : 0.0f;
+
+            sprintf(obj->buffer,
+                "%s{ \"id\": %llu, \"tag\": \"%s\","
+                " \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f,"
+                " \"activity\": %1.3f,"
+                " \"class\": \"%s\", \"class_conf\": %1.3f }",
                 obj->buffer,
                 obj->in->tracks->ids[iTrack],
                 obj->in->tracks->tags[iTrack],
                 obj->in->tracks->array[iTrack*3+0],
                 obj->in->tracks->array[iTrack*3+1],
                 obj->in->tracks->array[iTrack*3+2],
-                obj->in->tracks->velocity[iTrack*3+0],
-                obj->in->tracks->velocity[iTrack*3+1],
-                obj->in->tracks->velocity[iTrack*3+2],
-                obj->in->tracks->activity[iTrack]
+                obj->in->tracks->activity[iTrack],
+                cname,
+                cconf
             );
-            
+
+            /* Live console display for active tracks */
+            if (obj->in->tracks->activity[iTrack] > 0.0f) {
+                if (cname[0]) {
+                    fprintf(stderr,
+                        "[SST] id=%llu  x=%+.2f y=%+.2f z=%+.2f  act=%.2f  | %s (%.0f%%)\n",
+                        obj->in->tracks->ids[iTrack],
+                        obj->in->tracks->array[iTrack*3+0],
+                        obj->in->tracks->array[iTrack*3+1],
+                        obj->in->tracks->array[iTrack*3+2],
+                        obj->in->tracks->activity[iTrack],
+                        cname,
+                        cconf * 100.0f);
+                } else {
+                    fprintf(stderr,
+                        "[SST] id=%llu  x=%+.2f y=%+.2f z=%+.2f  act=%.2f  | (classifying...)\n",
+                        obj->in->tracks->ids[iTrack],
+                        obj->in->tracks->array[iTrack*3+0],
+                        obj->in->tracks->array[iTrack*3+1],
+                        obj->in->tracks->array[iTrack*3+2],
+                        obj->in->tracks->activity[iTrack]);
+                }
+            }
+
             if (iTrack != (obj->nTracks - 1)) {
 
                 sprintf(obj->buffer,"%s,",obj->buffer);

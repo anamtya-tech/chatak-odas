@@ -37,6 +37,15 @@
     obj->activity = (float *) malloc(sizeof(float) * nTracks);
     memset(obj->activity, 0x00, sizeof(float) * nTracks);
 
+    // Allocate YAMNet top-1 classification
+    obj->class_name = (char **) malloc(sizeof(char *) * nTracks);
+    obj->class_conf  = (float *) malloc(sizeof(float) * nTracks);
+    for (iTrack = 0; iTrack < nTracks; iTrack++) {
+        obj->class_name[iTrack] = (char *) malloc(sizeof(char) * 256);
+        strcpy(obj->class_name[iTrack], "");
+        obj->class_conf[iTrack] = 0.0f;
+    }
+
     return obj;
 }
 
@@ -55,6 +64,13 @@
         free((void *) obj->tags);
 
         free((void *) obj->activity);
+
+        for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
+            free((void *) obj->class_name[iTrack]);
+        }
+        free((void *) obj->class_name);
+        free((void *) obj->class_conf);
+
         free((void *) obj);
 
     }
@@ -84,6 +100,14 @@
         clone->activity = (float *) malloc(sizeof(float) * obj->nTracks);
         memcpy(clone->activity, obj->activity, sizeof(float) * obj->nTracks);
 
+        clone->class_name = (char **) malloc(sizeof(char *) * obj->nTracks);
+        clone->class_conf  = (float *) malloc(sizeof(float) * obj->nTracks);
+        for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
+            clone->class_name[iTrack] = (char *) malloc(sizeof(char) * 256);
+            strcpy(clone->class_name[iTrack], obj->class_name[iTrack]);
+            clone->class_conf[iTrack] = obj->class_conf[iTrack];
+        }
+
         return clone;
 
     }
@@ -104,6 +128,11 @@
 
         memcpy(dest->activity, src->activity, sizeof(float) * src->nTracks);
 
+        for (iTrack = 0; iTrack < src->nTracks; iTrack++) {
+            strcpy(dest->class_name[iTrack], src->class_name[iTrack]);
+            dest->class_conf[iTrack] = src->class_conf[iTrack];
+        }
+
     }
 
     void tracks_zero(tracks_obj * obj) {
@@ -121,6 +150,11 @@
 
         memset(obj->activity, 0x00, sizeof(float) * obj->nTracks);
 
+        for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
+            strcpy(obj->class_name[iTrack], "");
+            obj->class_conf[iTrack] = 0.0f;
+        }
+
     }
 
     void tracks_printf(const tracks_obj * obj) {
@@ -129,13 +163,15 @@
 
         for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
 
-            printf("(%04llu)-[%s]: %+1.3f %+1.3f %+1.3f - %1.3f\n",
+            printf("(%04llu)-[%s]: %+1.3f %+1.3f %+1.3f - %1.3f | %s %.2f\n",
                    obj->ids[iTrack],
                    obj->tags[iTrack],
                    obj->array[iTrack * 3 + 0],
                    obj->array[iTrack * 3 + 1],
                    obj->array[iTrack * 3 + 2],
-                   obj->activity[iTrack]);
+                   obj->activity[iTrack],
+                   obj->class_name[iTrack][0] ? obj->class_name[iTrack] : "(none)",
+                   obj->class_conf[iTrack]);
             
         }
 
