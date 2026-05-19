@@ -1717,7 +1717,11 @@ static void classify_track_hop(mod_sst_obj *obj,
         hop->timestamp = obj->in1->timeStamp;
         for (int k = 0; k < TOPK; k++) {
             hop->class_ids[k]   = topk_ids[k];
-            hop->confidences[k] = topk_confs[k];
+            /* Clamp to [0,1] — guards against raw logits or dequant artefacts */
+            float c = topk_confs[k];
+            if (c < 0.0f) c = 0.0f;
+            if (c > 1.0f) c = 1.0f;
+            hop->confidences[k] = c;
         }
         obj->topk_head[iTrack] = (hop_idx + 1) % ROLLING_HOPS;
         if (obj->topk_count[iTrack] < ROLLING_HOPS) obj->topk_count[iTrack]++;
@@ -1738,6 +1742,8 @@ static void classify_track_hop(mod_sst_obj *obj,
         obj->last_class_ts[iTrack]   = obj->in1->timeStamp;
 
     } else if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
+        if (confidence < 0.0f) confidence = 0.0f;
+        if (confidence > 1.0f) confidence = 1.0f;
         printf("[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
                trackID, class_name ? class_name : "unknown", class_id, confidence);
 
