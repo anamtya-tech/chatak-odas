@@ -15,6 +15,37 @@
 #include <cstring>
 #include <iostream>
 
+// ---------------------------------------------------------------------------
+// Helper: extract output tensor scores into a float vector, handling both
+// float32 and INT8/UINT8 quantized output tensors.
+// For quantized tensors: float_val = scale * (int_val - zero_point)
+// ---------------------------------------------------------------------------
+static std::vector<float> extract_scores(const TfLiteTensor* output, int num_classes) {
+    std::vector<float> scores(num_classes);
+    TfLiteType type = TfLiteTensorType(output);
+    if (type == kTfLiteFloat32) {
+        const float* raw = static_cast<const float*>(TfLiteTensorData(output));
+        for (int i = 0; i < num_classes; i++) scores[i] = raw[i];
+    } else if (type == kTfLiteInt8) {
+        TfLiteQuantizationParams qp = TfLiteTensorQuantizationParams(output);
+        const int8_t* raw = static_cast<const int8_t*>(TfLiteTensorData(output));
+        for (int i = 0; i < num_classes; i++)
+            scores[i] = qp.scale * (static_cast<float>(raw[i]) - qp.zero_point);
+    } else if (type == kTfLiteUInt8) {
+        TfLiteQuantizationParams qp = TfLiteTensorQuantizationParams(output);
+        const uint8_t* raw = static_cast<const uint8_t*>(TfLiteTensorData(output));
+        for (int i = 0; i < num_classes; i++)
+            scores[i] = qp.scale * (static_cast<float>(raw[i]) - qp.zero_point);
+    } else {
+        // Unknown type — fall back to float cast (may be garbage, but won't crash)
+        const float* raw = static_cast<const float*>(TfLiteTensorData(output));
+        for (int i = 0; i < num_classes; i++) scores[i] = raw[i];
+        std::cerr << "[WARN] YAMNet output tensor has unexpected type " << type
+                  << "; reading as float32 (values may be wrong)" << std::endl;
+    }
+    return scores;
+}
+
 // Implementation class (hidden from header)
 class YAMNetClassifier::Impl {
 public:
@@ -136,7 +167,7 @@ bool ClassifyPatch(const float* patch_96x257,
     if (TfLiteInterpreterInvoke(interpreter) != kTfLiteOk) return false;
 
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
-    const float* scores = static_cast<const float*>(TfLiteTensorData(output));
+    std::vector<float> scores = extract_scores(output, num_classes);
 
     // Find top class — use runtime num_classes, not hardcoded 521
     int top_idx = 0;
@@ -181,7 +212,7 @@ bool ClassifyPatchTopK(const float* patch_96x257,
     if (TfLiteInterpreterInvoke(interpreter) != kTfLiteOk) return false;
 
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
-    const float* scores = static_cast<const float*>(TfLiteTensorData(output));
+    std::vector<float> scores = extract_scores(output, num_classes);
 
     // Create pairs of (score, index) for sorting — use runtime num_classes
     std::vector<std::pair<float, int>> score_index_pairs;
@@ -243,7 +274,7 @@ bool ClassifyFromBuffer(int& class_id_out,
 
     // Get output
     const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(interpreter, 0);
-    const float* scores = static_cast<const float*>(TfLiteTensorData(output));
+    std::vector<float> scores = extract_scores(output, num_classes);
 
     // Find top class — use runtime num_classes, not hardcoded 521
     int top_idx = 0;
@@ -313,6 +344,17 @@ bool YAMNetClassifier::LoadModel(const char* tflite_model_path) {
     int out_dims = TfLiteTensorNumDims(out_t);
     pImpl->num_classes = TfLiteTensorDim(out_t, out_dims - 1);
     std::cout << "  YAMNet output classes (from model): " << pImpl->num_classes << std::endl;
+    {
+        TfLiteType ot = TfLiteTensorType(out_t);
+        const char* type_name = (ot == kTfLiteFloat32) ? "float32" :
+                                (ot == kTfLiteInt8)    ? "int8 (quantized)" :
+                                (ot == kTfLiteUInt8)   ? "uint8 (quantized)" : "other";
+        TfLiteQuantizationParams qp = TfLiteTensorQuantizationParams(out_t);
+        std::cout << "  YAMNet output tensor type: " << type_name;
+        if (ot == kTfLiteInt8 || ot == kTfLiteUInt8)
+            std::cout << "  scale=" << qp.scale << "  zero_point=" << qp.zero_point;
+        std::cout << std::endl;
+    }
 
     return true;
 }
