@@ -250,14 +250,29 @@ Generate the working-directory configs (written to `~/sodas/` by default):
 ./scripts/setup_runtime.sh
 ```
 
-This expands the `config/runtime/*.cfg.template` files, substituting the repo
-path and GUI path. You can override defaults:
+This expands the `config/runtime/*.cfg.template` files and writes them to the
+**output directory** (`~/sodas/` by default). That directory is the runtime
+working directory — it is separate from the repo and contains:
+
+| Path | What it is |
+|---|---|
+| `~/sodas/local_socket.cfg` | The config file `odaslive` reads at startup |
+| `~/sodas/ClassifierLogs/` | Where ODAS writes `.bin` spectral sidecars and session JSON during a run |
+
+The templates embed the repo path and GUI path so that `odaslive` can find the
+model files and emit events to the right sockets. Running the script is how those
+absolute paths get baked in.
+
+You can override the defaults:
 
 ```bash
 ./scripts/setup_runtime.sh \
-    --odas-dir /path/to/chatak-odas \
-    --output-dir /path/to/sodas
+    --odas-dir /path/to/chatak-odas \   # where the repo lives (default: auto-detected)
+    --output-dir /path/to/sodas         # where to write the .cfg files (default: ~/sodas)
 ```
+
+> **No rebuild needed.** The script only writes `.cfg` files — it does not
+> touch compiled code. After re-running it, just restart `odaslive`.
 
 ---
 
