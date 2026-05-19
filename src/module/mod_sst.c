@@ -2065,8 +2065,16 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
         sst_event_t ev = {-1, 0, 0.0f, 0.0f};
         if (obj->topk_count[i] >= 1) {
             ev = compute_event(obj, i);
-            printf("[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d, ev.votes=%d, min_event_votes=%d\n",
-                   obj->ids[i], obj->topk_count[i], ev.class_id, ev.votes, obj->min_event_votes);
+            {
+                const char *ev_dbg_name = (ev.class_id >= 0 && obj->yamnet)
+                    ? yamnet_class_name_from_id(obj->yamnet, ev.class_id)
+                    : NULL;
+                printf("[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d (%s), ev.votes=%d/%d, conf=%.2f (max=%.2f)\n",
+                    obj->ids[i], obj->topk_count[i],
+                    ev.class_id, ev_dbg_name ? ev_dbg_name : "none",
+                    ev.votes, obj->min_event_votes,
+                    ev.avg_conf, ev.max_conf);
+            }
             // Force event output if we have ANY classification data
             // The analyzer will handle filtering - our job is to emit all data
             if (ev.class_id >= 0 && ev.votes >= 1) {
