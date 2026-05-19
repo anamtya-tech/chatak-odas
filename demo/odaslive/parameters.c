@@ -1231,6 +1231,13 @@
             cfg->classifier_log_dir = tmpStr1;  // Ownership transfers to cfg
 
         // +----------------------------------------------------------+
+        // | Model Path                                               |
+        // +----------------------------------------------------------+
+
+            tmpStr1 = parameters_lookup_string(fileConfig, "raw.model_path");
+            cfg->model_path = tmpStr1;  // Ownership transfers to cfg
+
+        // +----------------------------------------------------------+
         // | Simulator mode  (0 = Pi/edge, 1 = Simulator)            |
         // | Optional — defaults to 0 if absent from config file.    |
         // +----------------------------------------------------------+
@@ -1629,6 +1636,12 @@
         /* Optional: reverse SSB shift in Hz before YAMNet (default 0 = disabled) */
         cfg->ssbShiftHz = (unsigned int) parameters_lookup_int_default(
             fileConfig, "sss.ssbShiftHz", 0);
+
+        /* Model path for YAMNet (reads from raw.model_path same as sst) */
+        {
+            char * tmpStr = parameters_lookup_string(fileConfig, "raw.model_path");
+            cfg->model_path = tmpStr;  // Ownership transfers to cfg
+        }
 
         return cfg;      
 

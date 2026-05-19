@@ -174,6 +174,7 @@
         float pf_ss_Gslope;
 
         unsigned int ssbShiftHz;     /* 0 = disabled; >0 = reverse SSB shift before YAMNet */
+        char * model_path;              /* Directory containing yamnet_core.tflite and yamnet_class_map.csv */
 
     } mod_sss_cfg;
 

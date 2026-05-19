@@ -250,6 +250,7 @@ typedef struct mod_sst_cfg {
 
     char enable_classifier_output;  // Flag to enable JSON output with classification data
     char * classifier_log_dir;      // Directory path for classifier output files
+    char * model_path;              // Directory containing yamnet_core.tflite and yamnet_class_map.csv
 
     /**
      * sim_mode — Set to 1 on the simulator/VM, 0 on the Raspberry Pi.

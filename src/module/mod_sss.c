@@ -379,11 +379,17 @@
         obj->enabled = 0;
 
         // Initialize YAMNet classifier (same as mod_sst)
-    obj->yamnet = yamnet_create("/home/azureuser/z_odas_newbeamform/models/yamnet_core.tflite",
-                            "/home/azureuser/z_odas_newbeamform/models/yamnet_class_map.csv");
+    if (mod_sss_config->model_path != NULL) {
+        char tflite_path[512], csv_path[512];
+        snprintf(tflite_path, sizeof(tflite_path), "%s/yamnet_core.tflite", mod_sss_config->model_path);
+        snprintf(csv_path,    sizeof(csv_path),    "%s/yamnet_class_map.csv", mod_sss_config->model_path);
+        obj->yamnet = yamnet_create(tflite_path, csv_path);
+    } else {
+        obj->yamnet = NULL;
+    }
 
     if (obj->yamnet == NULL) {
-        printf("Failed to initialize YAMNet in mod_sss\n");
+        printf("Failed to initialize YAMNet in mod_sss (model_path not set or files missing)\n");
         exit(EXIT_FAILURE);
     }
 
