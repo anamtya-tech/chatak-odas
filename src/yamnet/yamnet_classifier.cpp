@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cctype>
 #include <iostream>
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,25 @@ static std::vector<float> extract_scores(const TfLiteTensor* output, int num_cla
                   << "; reading as float32 (values may be wrong)" << std::endl;
     }
     return scores;
+}
+
+static std::string sanitize_class_label(std::string s) {
+    while (!s.empty() && (s.back() == '\r' || s.back() == '\n')) {
+        s.pop_back();
+    }
+
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
+        s.pop_back();
+    }
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
+        s.erase(s.begin());
+    }
+
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+        s = s.substr(1, s.size() - 2);
+    }
+
+    return s;
 }
 
 // Implementation class (hidden from header)
@@ -389,10 +409,10 @@ bool YAMNetClassifier::LoadClassNames(const char* csv_path) {
         fields.push_back(field);
         
         if (fields.size() >= 3) {
-            pImpl->class_names.push_back(fields[2]); // display_name
+            pImpl->class_names.push_back(sanitize_class_label(fields[2])); // display_name
         } else if (fields.size() == 2) {
             // 2-column fallback: index,display_name
-            pImpl->class_names.push_back(fields[1]);
+            pImpl->class_names.push_back(sanitize_class_label(fields[1]));
         }
     }
 

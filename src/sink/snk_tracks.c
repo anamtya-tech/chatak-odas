@@ -6,6 +6,67 @@
     
     #include <sink/snk_tracks.h>
     #include <sys/time.h>
+    #include <stdarg.h>
+
+    static void json_escape_string(const char *src, char *dst, size_t dstSize) {
+
+        size_t si;
+        size_t di;
+
+        if (dstSize == 0) {
+            return;
+        }
+
+        if (src == NULL) {
+            dst[0] = '\0';
+            return;
+        }
+
+        di = 0;
+        for (si = 0; src[si] != '\0' && di + 1 < dstSize; si++) {
+
+            char c = src[si];
+
+            if (c == '\\' || c == '"') {
+                if (di + 2 >= dstSize) {
+                    break;
+                }
+                dst[di++] = '\\';
+                dst[di++] = c;
+            }
+            else if (c == '\n' || c == '\r' || c == '\t') {
+                dst[di++] = ' ';
+            }
+            else {
+                dst[di++] = c;
+            }
+
+        }
+
+        dst[di] = '\0';
+
+    }
+
+    static void append_to_buffer(char *buffer, size_t bufferCapacity, const char *fmt, ...) {
+
+        size_t used;
+        va_list args;
+        int n;
+
+        used = strlen(buffer);
+        if (used >= bufferCapacity) {
+            return;
+        }
+
+        va_start(args, fmt);
+        n = vsnprintf(buffer + used, bufferCapacity - used, fmt, args);
+        va_end(args);
+
+        if (n < 0) {
+            buffer[used] = '\0';
+        }
+
+    }
 
     snk_tracks_obj * snk_tracks_construct(const snk_tracks_cfg * snk_tracks_config, const msg_tracks_cfg * msg_tracks_config) {
 
@@ -320,14 +381,16 @@
 
         unsigned int iTrack;
         struct timeval tv;
+        char escapedTag[512];
+        char escapedClass[512];
         gettimeofday(&tv, NULL);
         unsigned long long systemTimeMs = (unsigned long long)(tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 
         obj->buffer[0] = 0x00;
 
-        sprintf(obj->buffer,"%s{\n",obj->buffer);
-        sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,systemTimeMs);
-        sprintf(obj->buffer,"%s    \"src\": [\n",obj->buffer);
+        append_to_buffer(obj->buffer, 4096, "{\n");
+        append_to_buffer(obj->buffer, 4096, "    \"timeStamp\": %llu,\n", systemTimeMs);
+        append_to_buffer(obj->buffer, 4096, "    \"src\": [\n");
 
         for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
 
@@ -337,19 +400,22 @@
             float cconf = obj->in->tracks->class_conf
                           ? obj->in->tracks->class_conf[iTrack] : 0.0f;
 
-            sprintf(obj->buffer,
-                "%s{ \"id\": %llu, \"tag\": \"%s\","
+            json_escape_string(obj->in->tracks->tags[iTrack], escapedTag, sizeof(escapedTag));
+            json_escape_string(cname, escapedClass, sizeof(escapedClass));
+
+            append_to_buffer(obj->buffer,
+                4096,
+                "{ \"id\": %llu, \"tag\": \"%s\","
                 " \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f,"
                 " \"activity\": %1.3f,"
                 " \"class\": \"%s\", \"class_conf\": %1.3f }",
-                obj->buffer,
                 obj->in->tracks->ids[iTrack],
-                obj->in->tracks->tags[iTrack],
+                escapedTag,
                 obj->in->tracks->array[iTrack*3+0],
                 obj->in->tracks->array[iTrack*3+1],
                 obj->in->tracks->array[iTrack*3+2],
                 obj->in->tracks->activity[iTrack],
-                cname,
+                escapedClass,
                 cconf
             );
 
@@ -378,16 +444,16 @@
 
             if (iTrack != (obj->nTracks - 1)) {
 
-                sprintf(obj->buffer,"%s,",obj->buffer);
+                append_to_buffer(obj->buffer, 4096, ",");
 
             }
 
-            sprintf(obj->buffer,"%s\n",obj->buffer);
+            append_to_buffer(obj->buffer, 4096, "\n");
 
         }
         
-        sprintf(obj->buffer,"%s    ]\n",obj->buffer);
-        sprintf(obj->buffer,"%s}\n",obj->buffer);
+        append_to_buffer(obj->buffer, 4096, "    ]\n");
+        append_to_buffer(obj->buffer, 4096, "}\n");
 
         obj->bufferSize = strlen(obj->buffer);
 

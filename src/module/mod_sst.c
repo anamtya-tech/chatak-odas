@@ -1648,13 +1648,15 @@ static void classify_track_hop(mod_sst_obj *obj,
 
     const unsigned int YAMNET_BINS = 257;
     if (obj->halfFrameSize != YAMNET_BINS) {
-        printf("[ERROR] halfFrameSize=%u but YAMNet expects %u bins. Fix frameSize to 512.\n",
-               obj->halfFrameSize, YAMNET_BINS);
+        fprintf(stderr,
+                "[ERROR] halfFrameSize=%u but YAMNet expects %u bins. Fix frameSize to 512.\n",
+                obj->halfFrameSize, YAMNET_BINS);
         return;
     }
 
-    printf("[DEBUG] Track %llu hop_age=%u count=%u - Running YAMNet (early=%d)\n",
-           trackID, obj->trackSpectra[iTrack].hop_age, count, early_hop);
+    fprintf(stderr,
+            "[DEBUG] Track %llu hop_age=%u count=%u - Running YAMNet (early=%d)\n",
+            trackID, obj->trackSpectra[iTrack].hop_age, count, early_hop);
 
     /* ---- Assemble 96×257 patch ------------------------------------------ */
     float patch[96 * YAMNET_BINS];
@@ -1730,12 +1732,16 @@ static void classify_track_hop(mod_sst_obj *obj,
         confidence = topk_confs[0];
         class_name = yamnet_class_name_from_id(obj->yamnet, class_id);
 
-        printf("[YAMNET Top-K] Track %llu: Top5=[", trackID);
+        fprintf(stderr, "[YAMNET Top-K] Track %llu: Top5=[", trackID);
         for (int k = 0; k < TOPK; k++) {
             const char *cn = yamnet_class_name_from_id(obj->yamnet, topk_ids[k]);
-            printf("%s(%.3f)%s", cn, topk_confs[k], k < TOPK - 1 ? ", " : "");
+            fprintf(stderr,
+                    "%s(%.3f)%s",
+                    cn ? cn : "unknown",
+                    topk_confs[k],
+                    k < TOPK - 1 ? ", " : "");
         }
-        printf("]\n");
+        fprintf(stderr, "]\n");
 
         obj->last_class_id[iTrack]   = class_id;
         obj->last_class_conf[iTrack] = confidence;
@@ -1744,8 +1750,9 @@ static void classify_track_hop(mod_sst_obj *obj,
     } else if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
         if (confidence < 0.0f) confidence = 0.0f;
         if (confidence > 1.0f) confidence = 1.0f;
-        printf("[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
-               trackID, class_name ? class_name : "unknown", class_id, confidence);
+        fprintf(stderr,
+            "[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
+            trackID, class_name ? class_name : "unknown", class_id, confidence);
 
         int hop_idx = obj->topk_head[iTrack];
         topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
@@ -1774,11 +1781,15 @@ static void classify_track_hop(mod_sst_obj *obj,
             ty = obj->out->tracks->array[idx + 1];
             tz = obj->out->tracks->array[idx + 2];
         }
-        printf("[SST Audio Event] pos=(%6.2f, %6.2f, %6.2f) class=%s conf=%.2f\n",
-               tx, ty, tz, class_name, confidence);
+        fprintf(stderr,
+                "[SST Audio Event] pos=(%6.2f, %6.2f, %6.2f) class=%s conf=%.2f\n",
+                tx, ty, tz, class_name, confidence);
         if (obj->type[iTrack] == 'P' && confidence > threshold) {
             obj->type[iTrack] = 'A';
-            printf("[SST UPGRADE] Track %llu: P -> A (confidence %.2f)\n", trackID, confidence);
+            fprintf(stderr,
+                    "[SST UPGRADE] Track %llu: P -> A (confidence %.2f)\n",
+                    trackID,
+                    confidence);
         }
     }
 }
@@ -2075,7 +2086,8 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
                 const char *ev_dbg_name = (ev.class_id >= 0 && obj->yamnet)
                     ? yamnet_class_name_from_id(obj->yamnet, ev.class_id)
                     : NULL;
-                printf("[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d (%s), ev.votes=%d/%d, conf=%.2f (max=%.2f)\n",
+                fprintf(stderr,
+                    "[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d (%s), ev.votes=%d/%d, conf=%.2f (max=%.2f)\n",
                     obj->ids[i], obj->topk_count[i],
                     ev.class_id, ev_dbg_name ? ev_dbg_name : "none",
                     ev.votes, obj->min_event_votes,
@@ -2087,8 +2099,9 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
                 has_event = 1;
             } else if (ev.class_id >= 0) {
                 // Even with votes=0, emit if we have a class_id
-                printf("[EVENT_WARN] Track %llu has class_id=%d but votes=%d, forcing output\n",
-                       obj->ids[i], ev.class_id, ev.votes);
+                fprintf(stderr,
+                    "[EVENT_WARN] Track %llu has class_id=%d but votes=%d, forcing output\n",
+                    obj->ids[i], ev.class_id, ev.votes);
                 has_event = 1;
             }
         }
