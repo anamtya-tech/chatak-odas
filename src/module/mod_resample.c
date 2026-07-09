@@ -12,12 +12,29 @@
 
         obj = (mod_resample_obj *) malloc(sizeof(mod_resample_obj));
 
+        obj->hop2hop = (hop2hop_buffer_obj *) NULL;
+        obj->hop2frame = (hop2frame_obj *) NULL;
+        obj->framesAnalysis = (frames_obj *) NULL;
+        obj->frame2freq = (frame2freq_obj *) NULL;
+        obj->freqsAnalysis = (freqs_obj *) NULL;
+        obj->freq2freq_lowpass = (freq2freq_lowpass_obj *) NULL;
+        obj->freqsSynthesis = (freqs_obj *) NULL;
+        obj->freq2frame = (freq2frame_obj *) NULL;
+        obj->framesSynthesis = (frames_obj *) NULL;
+        obj->frame2hop = (frame2hop_obj *) NULL;
+        obj->hops = (hops_obj *) NULL;
+        obj->freq2freq_bandpass = (freq2freq_bandpass_obj *) NULL;
+        obj->freqsBandPass = (freqs_obj *) NULL;
+        obj->in = (msg_hops_obj *) NULL;
+        obj->out = (msg_hops_obj *) NULL;
+
         obj->timeStamp = 0;
         obj->noMorePush = 0;
         
         obj->recordEnabled = mod_resample_config->recordEnabled;
         strcpy(obj->bandpassPath, mod_resample_config->bandpassPath); 
-        strcpy(obj->audioRecordPath, mod_resample_config->audioRecordPath);       
+        strcpy(obj->liveRecordPath, mod_resample_config->liveRecordPath);
+        strcpy(obj->passiveRecordPath, mod_resample_config->passiveRecordPath);
 
         if (mod_resample_config->fSin == mod_resample_config->fSout) {
             obj->type = 's';
@@ -35,7 +52,7 @@
         obj->hopSizeIn = msg_hops_in_config->hopSize;
         obj->hopSizeOut = msg_hops_out_config->hopSize;
         obj->ratio = ((double) obj->fSout) / ((double) obj->fSin);
-        obj->lastBandpassUpdateTime = 0;
+        obj->lastBandpassUpdateTime = get_file_mod_time(obj->bandpassPath);
 
     
 
@@ -46,12 +63,11 @@
                 obj->frameSize = obj->hopSizeIn * 2;
                 obj->halfFrameSize = obj->frameSize / 2 + 1;
                 
-                obj->lowHz = 20;     // or 300 if you want a tighter band
-                obj->highHz = 20000; // or 3000 for speech
+                obj->lowHz = 0;
+                obj->highHz = obj->fSout / 2;
 
-                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
-                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
-                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                obj->lowCut = 0;
+                obj->highCut = obj->halfFrameSize;
                 
                 obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
                 obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
@@ -78,12 +94,11 @@
                 obj->frameSize = obj->hopSizeOut * 2;
                 obj->halfFrameSize = obj->frameSize / 2 + 1;
             
-                obj->lowHz = 20;     // or 300 if you want a tighter band
-                obj->highHz = 20000; // or 3000 for speech
+                obj->lowHz = 0;
+                obj->highHz = obj->fSout / 2;
 
-                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
-                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
-                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                obj->lowCut = 0;
+                obj->highCut = obj->halfFrameSize;
                 
                 obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
                 obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
@@ -110,12 +125,11 @@
                 obj->halfFrameSize = obj->frameSize / 2 + 1;
                 
                 
-                obj->lowHz = 20;     // or 300 if you want a tighter band
-                obj->highHz = 20000; // or 3000 for speech
+                obj->lowHz = 0;
+                obj->highHz = obj->fSout / 2;
 
-                obj->lowCut = (unsigned int)(obj->lowHz * obj->frameSize / obj->fSout);
-                obj->highCut = (unsigned int)(obj->highHz * obj->frameSize / obj->fSout);
-                if (obj->highCut > obj->halfFrameSize) obj->highCut = obj->halfFrameSize;
+                obj->lowCut = 0;
+                obj->highCut = obj->halfFrameSize;
                 
                 obj->freq2freq_bandpass = freq2freq_bandpass_construct_zero(obj->halfFrameSize, obj->lowCut, obj->highCut);
                 obj->freqsBandPass = freqs_construct_zero(obj->nChannels, obj->halfFrameSize);
@@ -141,8 +155,7 @@
 
         }
 
-        obj->in = (msg_hops_obj *) NULL;
-        obj->out = (msg_hops_obj *) NULL;
+        //printf("\nBandpass reset to: %u-%u Hz\n", obj->lowHz, obj->highHz);
 
         obj->enabled = 0;
 
@@ -608,7 +621,8 @@
         cfg = (mod_resample_cfg *) malloc(sizeof(mod_resample_cfg));
         
         cfg->recordEnabled = 1;
-        strcpy(cfg->audioRecordPath,"");
+        strcpy(cfg->liveRecordPath,"");
+        strcpy(cfg->passiveRecordPath,"");
         strcpy(cfg->bandpassPath, "/home/chatak/ChatakGUI/config/bandpass.cfg");
 
 

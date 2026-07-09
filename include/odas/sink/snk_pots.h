@@ -48,6 +48,7 @@
 
         unsigned int nPots;
         unsigned int fS;
+        int compact_mode;
 
         format_obj * format;
         interface_obj * interface;
@@ -67,6 +68,7 @@
     typedef struct snk_pots_cfg {
 
         unsigned int fS;
+        int compact_mode;
         format_obj * format;
         interface_obj * interface;
 

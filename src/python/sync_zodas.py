@@ -7,14 +7,14 @@ import io
 import shutil
 
 
-def create_session_folder(base_path):
+def create_session_folder(base_path, session_prefix):
     now = datetime.now()
-    timestamp = now.strftime("liveSession_%Y-%m-%d_%H-%M")
+    timestamp = now.strftime(f"{session_prefix}_%Y-%m-%d_%H-%M")
     folder_path = os.path.join(base_path, timestamp)
     os.makedirs(folder_path, exist_ok=True)
     return folder_path, timestamp
 
-def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, parent_pid):
+def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, config_file_path, parent_pid):
     print("ZODAS Sync started...")
     print(f" Sample Rate     : {fS}")
     print(f" Hop Size        : {hopSize}")
@@ -25,7 +25,7 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, parent_pid):
 
     # Create readable timestamped folder
     now = datetime.now()
-    folder_name = now.strftime("liveSession_%Y-%m-%d_%H-%M")
+    folder_name = now.strftime(f"{session_prefix}_%Y-%m-%d_%H-%M")
     full_path = os.path.join(audioRecordPath, folder_name)
     os.makedirs(full_path, exist_ok=True)
 
@@ -33,10 +33,18 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, parent_pid):
     base_filename = folder_name
     audio_file_path = os.path.join(full_path, f"{base_filename}.raw")
     timestamp_file_path = os.path.join(full_path, f"{base_filename}.txt")
+    session_cfg_path = os.path.join(full_path, f"{base_filename}.cfg")
+
+    # Copy active ODAS config used for this run into the session folder
+    try:
+        shutil.copy(config_file_path, session_cfg_path)
+        print(f"Copied config file to {session_cfg_path}")
+    except Exception as e:
+        print(f"Failed to copy config file: {e}")
 
     # ✅ Copy latlong.txt into the new folder with timestamped name
     src_latlong = "/home/chatak/ChatakGUI/config/latlong.txt"
-    dest_latlong = os.path.join(full_path, f"liveSession_{now.strftime('%Y-%m-%d_%H-%M')}_latlong.txt")
+    dest_latlong = os.path.join(full_path, f"{session_prefix}_{now.strftime('%Y-%m-%d_%H-%M')}_latlong.txt")
     try:
         shutil.copy(src_latlong, dest_latlong)
         print(f"Copied latlong.txt to {dest_latlong}")
@@ -93,8 +101,8 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, parent_pid):
             print("? Recording interrupted by user.")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 7:
-        print("Expected 6 arguments: fS hopSize nBits nChannels audioRecordPath parentPID")
+    if len(sys.argv) != 9:
+        print("Expected 8 arguments: fS hopSize nBits nChannels audioRecordPath sessionPrefix configFilePath parentPID")
         sys.exit(1)
 
     fS = int(sys.argv[1])
@@ -102,6 +110,8 @@ if __name__ == "__main__":
     nBits = int(sys.argv[3])
     nChannels = int(sys.argv[4])
     audioRecordPath = sys.argv[5]
-    parent_pid = int(sys.argv[6])
+    session_prefix = sys.argv[6]
+    config_file_path = sys.argv[7]
+    parent_pid = int(sys.argv[8])
 
-    sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, parent_pid)
+    sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, config_file_path, parent_pid)

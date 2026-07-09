@@ -1654,9 +1654,11 @@ static void classify_track_hop(mod_sst_obj *obj,
         return;
     }
 
+    /*
     fprintf(stderr,
             "[DEBUG] Track %llu hop_age=%u count=%u - Running YAMNet (early=%d)\n",
             trackID, obj->trackSpectra[iTrack].hop_age, count, early_hop);
+            */
 
     /* ---- Assemble 96×257 patch ------------------------------------------ */
     float patch[96 * YAMNET_BINS];
@@ -1732,16 +1734,17 @@ static void classify_track_hop(mod_sst_obj *obj,
         confidence = topk_confs[0];
         class_name = yamnet_class_name_from_id(obj->yamnet, class_id);
 
-        fprintf(stderr, "[YAMNET Top-K] Track %llu: Top5=[", trackID);
-        for (int k = 0; k < TOPK; k++) {
-            const char *cn = yamnet_class_name_from_id(obj->yamnet, topk_ids[k]);
-            fprintf(stderr,
-                    "%s(%.3f)%s",
-                    cn ? cn : "unknown",
-                    topk_confs[k],
-                    k < TOPK - 1 ? ", " : "");
-        }
-        fprintf(stderr, "]\n");
+        
+        //fprintf(stderr, "[YAMNET Top-K] Track %llu: Top5=[", trackID);
+        //for (int k = 0; k < TOPK; k++) {
+        //    const char *cn = yamnet_class_name_from_id(obj->yamnet, topk_ids[k]);
+        //    fprintf(stderr,
+        //            "%s(%.3f)%s",
+        //            cn ? cn : "unknown",
+        //            topk_confs[k],
+        //            k < TOPK - 1 ? ", " : "");
+        //}
+        //fprintf(stderr, "]\n");
 
         obj->last_class_id[iTrack]   = class_id;
         obj->last_class_conf[iTrack] = confidence;
@@ -1750,9 +1753,9 @@ static void classify_track_hop(mod_sst_obj *obj,
     } else if (yamnet_classify_patch(obj->yamnet, patch, &class_id, &class_name, &confidence)) {
         if (confidence < 0.0f) confidence = 0.0f;
         if (confidence > 1.0f) confidence = 1.0f;
-        fprintf(stderr,
-            "[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
-            trackID, class_name ? class_name : "unknown", class_id, confidence);
+        //fprintf(stderr,
+        //    "[YAMNET] Track %llu: class='%s' (id=%d) confidence=%.3f\n",
+        //    trackID, class_name ? class_name : "unknown", class_id, confidence);
 
         int hop_idx = obj->topk_head[iTrack];
         topk_hop_t *hop = &obj->topk_history[iTrack][hop_idx];
@@ -1805,21 +1808,21 @@ void push_pot_to_track_buffer(mod_sst_obj* obj,
     // Safety checks
     if (obj == NULL || obj->in1 == NULL || obj->in1->pots == NULL) {
         if (debug) {
-            printf("[ERROR] NULL pointer in push_pot_to_track_buffer\n");
+            //printf("[ERROR] NULL pointer in push_pot_to_track_buffer\n");
         }
         return;
     }
     
     if (iPot >= obj->nPots) {
         if (debug) {
-            printf("[ERROR] Invalid iPot=%u (nPots=%u)\n", iPot, obj->nPots);
+            //printf("[ERROR] Invalid iPot=%u (nPots=%u)\n", iPot, obj->nPots);
         }
         return;
     }
     
     if (iTrack >= obj->nTracksMax) {
         if (debug) {
-            printf("[ERROR] Invalid iTrack=%u (nTracksMax=%u)\n", iTrack, obj->nTracksMax);
+            //printf("[ERROR] Invalid iTrack=%u (nTracksMax=%u)\n", iTrack, obj->nTracksMax);
         }
         return;
     }
@@ -1845,7 +1848,7 @@ void push_pot_to_track_buffer(mod_sst_obj* obj,
             obj->trackSpectra[iTrack].buffer = (float **)calloc(nFramesPerTrack, sizeof(float *));
             if (obj->trackSpectra[iTrack].buffer == NULL) {
                 if (debug) {
-                    printf("[ERROR] Failed to allocate buffer pointer array for Track ID %llu\n", trackID);
+                    //printf("[ERROR] Failed to allocate buffer pointer array for Track ID %llu\n", trackID);
                 }
                 return;
             }
@@ -1864,7 +1867,7 @@ void push_pot_to_track_buffer(mod_sst_obj* obj,
             obj->trackSpectra[iTrack].buffer[h] = (float *)malloc(sizeof(float) * obj->halfFrameSize);
             if (obj->trackSpectra[iTrack].buffer[h] == NULL) {
                 if (debug) {
-                    printf("[ERROR] Failed to allocate buffer[%u] for Track ID %llu\n", h, trackID);
+                    //printf("[ERROR] Failed to allocate buffer[%u] for Track ID %llu\n", h, trackID);
                 }
                 return;
             }
@@ -2082,26 +2085,13 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
         sst_event_t ev = {-1, 0, 0.0f, 0.0f};
         if (obj->topk_count[i] >= 1) {
             ev = compute_event(obj, i);
-            {
-                const char *ev_dbg_name = (ev.class_id >= 0 && obj->yamnet)
-                    ? yamnet_class_name_from_id(obj->yamnet, ev.class_id)
-                    : NULL;
-                fprintf(stderr,
-                    "[EVENT_DEBUG] Track %llu: topk_count=%d, ev.class_id=%d (%s), ev.votes=%d/%d, conf=%.2f (max=%.2f)\n",
-                    obj->ids[i], obj->topk_count[i],
-                    ev.class_id, ev_dbg_name ? ev_dbg_name : "none",
-                    ev.votes, obj->min_event_votes,
-                    ev.avg_conf, ev.max_conf);
-            }
+
             // Force event output if we have ANY classification data
             // The analyzer will handle filtering - our job is to emit all data
             if (ev.class_id >= 0 && ev.votes >= 1) {
                 has_event = 1;
             } else if (ev.class_id >= 0) {
-                // Even with votes=0, emit if we have a class_id
-                fprintf(stderr,
-                    "[EVENT_WARN] Track %llu has class_id=%d but votes=%d, forcing output\n",
-                    obj->ids[i], ev.class_id, ev.votes);
+                // Even with votes=0, emit if we have a class_id.
                 has_event = 1;
             }
         }

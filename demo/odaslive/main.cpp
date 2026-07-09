@@ -49,9 +49,11 @@ extern "C" {
         // +------------------------------------------------------+   
 
             int c;
+            int iArg;
             char * file_config;
             char *typeStr;
             int record_enabled =0;
+            enum { record_mode_none = 0, record_mode_live = 1, record_mode_passive = 2 } record_mode = record_mode_none;
 
         // +------------------------------------------------------+
         // | Objects                                              |
@@ -111,6 +113,18 @@ extern "C" {
             zodas_pid = getpid();
             
 
+            /* Accept aliases -rl and -rp by rewriting them to -r before getopt parsing. */
+            for (iArg = 1; iArg < argc; iArg++) {
+                if (strcmp(argv[iArg], "-rl") == 0) {
+                    record_mode = record_mode_live;
+                    argv[iArg] = (char *) "-r";
+                }
+                else if (strcmp(argv[iArg], "-rp") == 0) {
+                    record_mode = record_mode_passive;
+                    argv[iArg] = (char *) "-r";
+                }
+            }
+
             while ((c = getopt(argc,argv, "c:hsvr")) != -1) {
 
                 switch(c) {
@@ -137,6 +151,8 @@ extern "C" {
                         printf("| -h       Help                                      |\n");
                         printf("| -s       Process sequentially (no multithread)     |\n");
                         printf("| -v       Verbose                                   |\n");
+                        printf("| -rl      Record to raw.liveRecordPath              |\n");
+                        printf("| -rp      Record to raw.passiveRecordPath           |\n");
                         printf("+----------------------------------------------------+\n");                
 
                         exit(EXIT_SUCCESS);
@@ -158,6 +174,9 @@ extern "C" {
                     case 'r':
 
                         record_enabled = 1;
+                        if (record_mode == record_mode_none) {
+                            record_mode = record_mode_live;
+                        }
 
                     break;
 
@@ -168,6 +187,13 @@ extern "C" {
             if (file_config == NULL) {
                 printf("Missing configuration file.\n");
                 exit(EXIT_FAILURE);
+            }
+
+            if (record_mode == record_mode_passive) {
+                setenv("ODAS_RECORD_MODE", "passive", 1);
+            }
+            else {
+                setenv("ODAS_RECORD_MODE", "live", 1);
             }
 
         // +------------------------------------------------------+
@@ -321,12 +347,21 @@ extern "C" {
                     if (strcmp(typeStr, "file") == 0) {
                         printf("| + Skipping record for file read.... [Done] |\n"); fflush(stdout);
                     } else {
+                        const char *recordPath = (record_mode == record_mode_passive)
+                                                 ? cfgs->mod_resample_mics_config->passiveRecordPath
+                                                 : cfgs->mod_resample_mics_config->liveRecordPath;
+                        const char *sessionPrefix = (record_mode == record_mode_passive)
+                                                    ? "passiveSession"
+                                                    : "liveSession";
+
                         call_sync_zodas(
                             cfgs->msg_hops_mics_raw_config->fS,
                             cfgs->msg_hops_mics_raw_config->hopSize,
                             cfgs->mod_resample_mics_config->nBits,
                             cfgs->msg_hops_mics_raw_config->nChannels,
-                            cfgs->mod_resample_mics_config->audioRecordPath,
+                            recordPath,
+                            sessionPrefix,
+                            file_config,
                             zodas_pid
                         );
                         if (verbose == 0x01){printf("| + Record Audio Started............. [Done] |\n"); fflush(stdout);}

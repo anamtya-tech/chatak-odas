@@ -33,7 +33,8 @@
 
         int recordEnabled;
         char bandpassPath[256];
-        char audioRecordPath[256];
+        char liveRecordPath[256];
+        char passiveRecordPath[256];
 
         
         time_t lastBandpassUpdateTime;   // For detecting config file changes
@@ -87,7 +88,8 @@
         int recordEnabled;
         int nBits;
         
-        char audioRecordPath[256];
+        char liveRecordPath[256];
+        char passiveRecordPath[256];
         char bandpassPath[256];
 
     } mod_resample_cfg;

@@ -164,6 +164,30 @@
 
     }
 
+    bool parameters_exists(const char * file, const char * path) {
+
+        config_t cfg;
+        config_setting_t * setting;
+        bool exists;
+
+        config_init(&cfg);
+
+        if(!config_read_file(&cfg, file))
+        {
+            printf("%s:%d - %s\n", config_error_file(&cfg), config_error_line(&cfg), config_error_text(&cfg));
+            config_destroy(&cfg);
+            exit(EXIT_FAILURE);
+        }
+
+        setting = config_lookup(&cfg, path);
+        exists = (setting != NULL);
+
+        config_destroy(&cfg);
+
+        return exists;
+
+    }
+
     src_hops_cfg * parameters_src_hops_mics_config(const char * fileConfig) {
 
         src_hops_cfg * cfg;
@@ -377,6 +401,8 @@
     mod_resample_cfg * parameters_mod_resample_mics_config(const char * fileConfig) {
 
         mod_resample_cfg * cfg;
+        char * tmpPath;
+        char * tmpBandpass;
 
         unsigned int tmpInt1;
         unsigned int tmpInt2;
@@ -401,8 +427,34 @@
             cfg->nBits = parameters_lookup_int(fileConfig, "raw.nBits");
             cfg->recordEnabled = parameters_lookup_int(fileConfig, "raw.record");
 
-            strcpy(cfg->audioRecordPath, parameters_lookup_string(fileConfig, "raw.audioRecordPath"));
-            strcpy(cfg->bandpassPath, parameters_lookup_string(fileConfig, "raw.bandpass"));
+            if (parameters_exists(fileConfig, "raw.liveRecordPath")) {
+                tmpPath = parameters_lookup_string(fileConfig, "raw.liveRecordPath");
+            }
+            else {
+                tmpPath = parameters_lookup_string(fileConfig, "raw.audioRecordPath");
+            }
+
+            strncpy(cfg->liveRecordPath, tmpPath, sizeof(cfg->liveRecordPath) - 1);
+            cfg->liveRecordPath[sizeof(cfg->liveRecordPath) - 1] = '\0';
+            free((void *) tmpPath);
+
+            if (parameters_exists(fileConfig, "raw.passiveRecordPath")) {
+                tmpPath = parameters_lookup_string(fileConfig, "raw.passiveRecordPath");
+                strncpy(cfg->passiveRecordPath, tmpPath, sizeof(cfg->passiveRecordPath) - 1);
+                cfg->passiveRecordPath[sizeof(cfg->passiveRecordPath) - 1] = '\0';
+                free((void *) tmpPath);
+            }
+            else {
+                strncpy(cfg->passiveRecordPath,
+                        cfg->liveRecordPath,
+                        sizeof(cfg->passiveRecordPath) - 1);
+                cfg->passiveRecordPath[sizeof(cfg->passiveRecordPath) - 1] = '\0';
+            }
+
+            tmpBandpass = parameters_lookup_string(fileConfig, "raw.bandpass");
+            strncpy(cfg->bandpassPath, tmpBandpass, sizeof(cfg->bandpassPath) - 1);
+            cfg->bandpassPath[sizeof(cfg->bandpassPath) - 1] = '\0';
+            free((void *) tmpBandpass);
 
 
 
@@ -857,6 +909,18 @@
             cfg->fS = parameters_lookup_int(fileConfig, "general.samplerate.mu");
 
         // +----------------------------------------------------------+
+        // | Compact mode (0 = full list, 1 = suppress zero rows)    |
+        // +----------------------------------------------------------+
+
+            cfg->compact_mode = parameters_lookup_int_default(fileConfig,
+                                                              "ssl.potential.compact_mode",
+                                                              0);
+            if (cfg->compact_mode < 0 || cfg->compact_mode > 1) {
+                printf("ssl.potential.compact_mode: Invalid value (use 0 or 1). Defaulting to 0.\n");
+                cfg->compact_mode = 0;
+            }
+
+        // +----------------------------------------------------------+
         // | Format                                                   |
         // +----------------------------------------------------------+
 
@@ -1302,6 +1366,40 @@
         // +----------------------------------------------------------+
 
             cfg->fS = parameters_lookup_int(fileConfig, "general.samplerate.mu");
+
+        // +----------------------------------------------------------+
+        // | Compact mode (0 = full slots, 1 = suppress zero rows)   |
+        // +----------------------------------------------------------+
+
+            cfg->compact_mode = parameters_lookup_int_default(fileConfig,
+                                                              "sst.tracked.compact_mode",
+                                                              0);
+            if (cfg->compact_mode < 0 || cfg->compact_mode > 1) {
+                printf("sst.tracked.compact_mode: Invalid value (use 0 or 1). Defaulting to 0.\n");
+                cfg->compact_mode = 0;
+            }
+
+        // +----------------------------------------------------------+
+        // | Record mirror for tracks sidecar                         |
+        // +----------------------------------------------------------+
+
+            const char *recordMode;
+            cfg->record_enabled = parameters_lookup_int_default(fileConfig, "raw.record", 0);
+            recordMode = getenv("ODAS_RECORD_MODE");
+
+            if ((recordMode != NULL) && (strcmp(recordMode, "passive") == 0) &&
+                parameters_exists(fileConfig, "raw.passiveRecordPath")) {
+                tmpStr2 = parameters_lookup_string(fileConfig, "raw.passiveRecordPath");
+            }
+            else if (parameters_exists(fileConfig, "raw.liveRecordPath")) {
+                tmpStr2 = parameters_lookup_string(fileConfig, "raw.liveRecordPath");
+            }
+            else {
+                tmpStr2 = parameters_lookup_string(fileConfig, "raw.audioRecordPath");
+            }
+            strncpy(cfg->audio_record_path, tmpStr2, sizeof(cfg->audio_record_path) - 1);
+            cfg->audio_record_path[sizeof(cfg->audio_record_path) - 1] = '\0';
+            free((void *) tmpStr2);
 
         // +----------------------------------------------------------+
         // | Format                                                   |

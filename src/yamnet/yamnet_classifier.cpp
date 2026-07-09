@@ -14,7 +14,6 @@
 #include <cmath>
 #include <cstring>
 #include <cctype>
-#include <iostream>
 
 // ---------------------------------------------------------------------------
 // Helper: extract output tensor scores into a float vector, handling both
@@ -41,8 +40,6 @@ static std::vector<float> extract_scores(const TfLiteTensor* output, int num_cla
         // Unknown type — fall back to float cast (may be garbage, but won't crash)
         const float* raw = static_cast<const float*>(TfLiteTensorData(output));
         for (int i = 0; i < num_classes; i++) scores[i] = raw[i];
-        std::cerr << "[WARN] YAMNet output tensor has unexpected type " << type
-                  << "; reading as float32 (values may be wrong)" << std::endl;
     }
     return scores;
 }
@@ -333,27 +330,23 @@ bool YAMNetClassifier::LoadModel(const char* tflite_model_path) {
     // Create model from file
     pImpl->model = TfLiteModelCreateFromFile(tflite_model_path);
     if (!pImpl->model) {
-        std::cerr << "Failed to load model from " << tflite_model_path << std::endl;
         return false;
     }
 
     // Create interpreter options
     pImpl->options = TfLiteInterpreterOptionsCreate();
     if (!pImpl->options) {
-        std::cerr << "Failed to create interpreter options" << std::endl;
         return false;
     }
 
     // Create interpreter
     pImpl->interpreter = TfLiteInterpreterCreate(pImpl->model, pImpl->options);
     if (!pImpl->interpreter) {
-        std::cerr << "Failed to create interpreter" << std::endl;
         return false;
     }
 
     // Allocate tensors
     if (TfLiteInterpreterAllocateTensors(pImpl->interpreter) != kTfLiteOk) {
-        std::cerr << "Failed to allocate tensors" << std::endl;
         return false;
     }
 
@@ -363,18 +356,6 @@ bool YAMNetClassifier::LoadModel(const char* tflite_model_path) {
     const TfLiteTensor* out_t = TfLiteInterpreterGetOutputTensor(pImpl->interpreter, 0);
     int out_dims = TfLiteTensorNumDims(out_t);
     pImpl->num_classes = TfLiteTensorDim(out_t, out_dims - 1);
-    std::cout << "  YAMNet output classes (from model): " << pImpl->num_classes << std::endl;
-    {
-        TfLiteType ot = TfLiteTensorType(out_t);
-        const char* type_name = (ot == kTfLiteFloat32) ? "float32" :
-                                (ot == kTfLiteInt8)    ? "int8 (quantized)" :
-                                (ot == kTfLiteUInt8)   ? "uint8 (quantized)" : "other";
-        TfLiteQuantizationParams qp = TfLiteTensorQuantizationParams(out_t);
-        std::cout << "  YAMNet output tensor type: " << type_name;
-        if (ot == kTfLiteInt8 || ot == kTfLiteUInt8)
-            std::cout << "  scale=" << qp.scale << "  zero_point=" << qp.zero_point;
-        std::cout << std::endl;
-    }
 
     return true;
 }
@@ -383,7 +364,6 @@ bool YAMNetClassifier::LoadModel(const char* tflite_model_path) {
 bool YAMNetClassifier::LoadClassNames(const char* csv_path) {
     std::ifstream file(csv_path);
     if (!file.is_open()) {
-        std::cerr << "Failed to open class map: " << csv_path << std::endl;
         return false;
     }
     
@@ -419,10 +399,8 @@ bool YAMNetClassifier::LoadClassNames(const char* csv_path) {
     // Accept any non-empty class list. For fine-tuned models the count will
     // differ from YAMNet::Params::NUM_CLASSES (521) — that is expected.
     if (pImpl->class_names.empty()) {
-        std::cerr << "LoadClassNames: no classes read from " << csv_path << std::endl;
         return false;
     }
-    std::cout << "  YAMNet class names loaded: " << pImpl->class_names.size() << std::endl;
     return true;
 }
 
@@ -482,33 +460,7 @@ bool YAMNetClassifier::IsReady() const {
 }
 
 void YAMNetClassifier::PrintModelInfo() const {
-    if (!pImpl->interpreter) {
-        std::cout << "Model not loaded" << std::endl;
-        return;
-    }
-
-    TfLiteTensor* input = TfLiteInterpreterGetInputTensor(pImpl->interpreter, 0);
-    const TfLiteTensor* output = TfLiteInterpreterGetOutputTensor(pImpl->interpreter, 0);
-
-    std::cout << "Model Information:" << std::endl;
-
-    std::cout << "  Input shape: [";
-    int input_dims = TfLiteTensorNumDims(input);
-    for (int i = 0; i < input_dims; i++) {
-        std::cout << TfLiteTensorDim(input, i);
-        if (i < input_dims - 1) std::cout << ", ";
-    }
-    std::cout << "]" << std::endl;
-
-    std::cout << "  Output shape: [";
-    int output_dims = TfLiteTensorNumDims(output);
-    for (int i = 0; i < output_dims; i++) {
-        std::cout << TfLiteTensorDim(output, i);
-        if (i < output_dims - 1) std::cout << ", ";
-    }
-    std::cout << "]" << std::endl;
-
-    std::cout << "  Classes loaded: " << pImpl->class_names.size() << std::endl;
+    // Intentionally silent.
 }
 
 bool YAMNetClassifier::ClassifyPatch(const float* patch_96x257,

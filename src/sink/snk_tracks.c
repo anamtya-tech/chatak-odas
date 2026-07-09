@@ -7,6 +7,145 @@
     #include <sink/snk_tracks.h>
     #include <sys/time.h>
     #include <stdarg.h>
+    #include <math.h>
+    #include <dirent.h>
+    #include <sys/stat.h>
+    #include <errno.h>
+    #include <time.h>
+
+    static int starts_with_record_session(const char *name) {
+
+        const char *livePrefix;
+        const char *passivePrefix;
+
+        livePrefix = "liveSession_";
+        passivePrefix = "passiveSession_";
+        if (name == NULL) {
+            return 0;
+        }
+
+        if (strncmp(name, livePrefix, strlen(livePrefix)) == 0) {
+            return 1;
+        }
+        if (strncmp(name, passivePrefix, strlen(passivePrefix)) == 0) {
+            return 1;
+        }
+
+        return 0;
+
+    }
+
+    static int resolve_latest_tracks_sidecar_path(const char *audioRecordPath,
+                                                  char *outPath,
+                                                  size_t outPathSize) {
+
+        DIR *dir;
+        struct dirent *entry;
+        char bestName[256];
+
+        dir = opendir(audioRecordPath);
+        if (dir == NULL) {
+            return -1;
+        }
+
+        bestName[0] = '\0';
+
+        while ((entry = readdir(dir)) != NULL) {
+
+            char candidatePath[1536];
+            char candidateRawPath[1792];
+            struct stat st;
+            struct stat stRaw;
+            time_t now;
+
+            if (!starts_with_record_session(entry->d_name)) {
+                continue;
+            }
+
+            snprintf(candidatePath,
+                     sizeof(candidatePath),
+                     "%s/%s",
+                     audioRecordPath,
+                     entry->d_name);
+
+            if (stat(candidatePath, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                continue;
+            }
+
+            /*
+             * Attach only to an actively recording session:
+             * expect <session>/<session>.raw to exist and be freshly updated.
+             */
+            snprintf(candidateRawPath,
+                     sizeof(candidateRawPath),
+                     "%s/%s/%s.raw",
+                     audioRecordPath,
+                     entry->d_name,
+                     entry->d_name);
+
+            if (stat(candidateRawPath, &stRaw) != 0 || !S_ISREG(stRaw.st_mode)) {
+                continue;
+            }
+
+            now = time(NULL);
+            if (stRaw.st_mtime < (now - 5)) {
+                continue;
+            }
+
+            if (bestName[0] == '\0' || strcmp(entry->d_name, bestName) > 0) {
+                strncpy(bestName, entry->d_name, sizeof(bestName) - 1);
+                bestName[sizeof(bestName) - 1] = '\0';
+            }
+
+        }
+
+        closedir(dir);
+
+        if (bestName[0] == '\0') {
+            return -1;
+        }
+
+        snprintf(outPath,
+                 outPathSize,
+                 "%s/%s/%s_tracks.json",
+                 audioRecordPath,
+                 bestName,
+                 bestName);
+
+        return 0;
+
+    }
+
+    static void snk_tracks_try_open_record_sidecar(snk_tracks_obj *obj) {
+
+        char sidecarPath[1536];
+
+        if (obj->record_enabled != 1 ||
+            obj->interface->type == interface_blackhole ||
+            obj->audio_record_path[0] == '\0' ||
+            obj->fp_record != NULL) {
+            return;
+        }
+
+        if (resolve_latest_tracks_sidecar_path(obj->audio_record_path,
+                                               sidecarPath,
+                                               sizeof(sidecarPath)) == 0) {
+            obj->fp_record = fopen(sidecarPath, "ab");
+            if (obj->fp_record == NULL) {
+                fprintf(stderr,
+                        "Sink tracks: Cannot open record sidecar file %s (errno=%d: %s)\n",
+                        sidecarPath,
+                        errno,
+                        strerror(errno));
+            }
+            else {
+                fprintf(stderr,
+                        "Sink tracks: Recording tracks sidecar -> %s\n",
+                        sidecarPath);
+            }
+        }
+
+    }
 
     static void json_escape_string(const char *src, char *dst, size_t dstSize) {
 
@@ -78,6 +217,12 @@
 
         obj->nTracks = msg_tracks_config->nTracks;
         obj->fS = snk_tracks_config->fS;
+        obj->compact_mode = snk_tracks_config->compact_mode;
+        obj->record_enabled = snk_tracks_config->record_enabled;
+        strncpy(obj->audio_record_path,
+            snk_tracks_config->audio_record_path,
+            sizeof(obj->audio_record_path) - 1);
+        obj->audio_record_path[sizeof(obj->audio_record_path) - 1] = '\0';
         
         obj->format = format_clone(snk_tracks_config->format);
         obj->interface = interface_clone(snk_tracks_config->interface);
@@ -96,6 +241,7 @@
         }
 
         obj->fp = (FILE *) NULL;
+        obj->fp_record = (FILE *) NULL;
 
         obj->buffer = (char *) malloc(sizeof(char) * 4096);
         memset(obj->buffer, 0x00, sizeof(char) * 4096);
@@ -166,6 +312,8 @@
             break;           
 
         }
+
+        snk_tracks_try_open_record_sidecar(obj);
 
     }
 
@@ -247,6 +395,11 @@
 
         }
 
+        if (obj->fp_record != NULL) {
+            fclose(obj->fp_record);
+            obj->fp_record = (FILE *) NULL;
+        }
+
     }
 
     void snk_tracks_close_interface_blackhole(snk_tracks_obj * obj) {
@@ -278,6 +431,8 @@
         int rtnValue;
 
         if (obj->in->timeStamp != 0) {
+
+            snk_tracks_try_open_record_sidecar(obj);
 
             switch(obj->format->type) {
 
@@ -337,6 +492,11 @@
 
             }
 
+            if (obj->fp_record != NULL) {
+                fwrite(obj->buffer, sizeof(char), obj->bufferSize, obj->fp_record);
+                fflush(obj->fp_record);
+            }
+
             rtnValue = 0;
 
         }
@@ -380,6 +540,7 @@
     void snk_tracks_process_format_text_json(snk_tracks_obj * obj) {
 
         unsigned int iTrack;
+        unsigned int nEmitted;
         struct timeval tv;
         char escapedTag[512];
         char escapedClass[512];
@@ -392,7 +553,26 @@
         append_to_buffer(obj->buffer, 4096, "    \"timeStamp\": %llu,\n", systemTimeMs);
         append_to_buffer(obj->buffer, 4096, "    \"src\": [\n");
 
+        nEmitted = 0;
+
         for (iTrack = 0; iTrack < obj->nTracks; iTrack++) {
+
+            float x = obj->in->tracks->array[iTrack*3+0];
+            float y = obj->in->tracks->array[iTrack*3+1];
+            float z = obj->in->tracks->array[iTrack*3+2];
+            float activity = obj->in->tracks->activity[iTrack];
+
+            if (obj->compact_mode == 1 &&
+                fabsf(x) < 1.0e-6f &&
+                fabsf(y) < 1.0e-6f &&
+                fabsf(z) < 1.0e-6f &&
+                fabsf(activity) < 1.0e-6f) {
+                continue;
+            }
+
+            if (nEmitted > 0) {
+                append_to_buffer(obj->buffer, 4096, ",\n");
+            }
 
             const char *cname = (obj->in->tracks->class_name &&
                                  obj->in->tracks->class_name[iTrack][0])
@@ -411,13 +591,15 @@
                 " \"class\": \"%s\", \"class_conf\": %1.3f }",
                 obj->in->tracks->ids[iTrack],
                 escapedTag,
-                obj->in->tracks->array[iTrack*3+0],
-                obj->in->tracks->array[iTrack*3+1],
-                obj->in->tracks->array[iTrack*3+2],
-                obj->in->tracks->activity[iTrack],
+                x,
+                y,
+                z,
+                activity,
                 escapedClass,
                 cconf
             );
+
+            nEmitted++;
 
             /* Live console display for active tracks */
             if (obj->in->tracks->activity[iTrack] > 0.0f) {
@@ -442,14 +624,10 @@
                 }
             }
 
-            if (iTrack != (obj->nTracks - 1)) {
+        }
 
-                append_to_buffer(obj->buffer, 4096, ",");
-
-            }
-
+        if (nEmitted > 0) {
             append_to_buffer(obj->buffer, 4096, "\n");
-
         }
         
         append_to_buffer(obj->buffer, 4096, "    ]\n");
@@ -473,6 +651,9 @@
         cfg = (snk_tracks_cfg *) malloc(sizeof(snk_tracks_cfg));
 
         cfg->fS = 0;
+        cfg->compact_mode = 0;
+        cfg->record_enabled = 0;
+        cfg->audio_record_path[0] = '\0';
         cfg->format = (format_obj *) NULL;
         cfg->interface = (interface_obj *) NULL;
 

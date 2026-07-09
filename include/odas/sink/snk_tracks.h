@@ -23,6 +23,9 @@
 
         unsigned int nTracks;
         unsigned int fS;
+        int compact_mode;
+        int record_enabled;
+        char audio_record_path[1024];
 
         format_obj * format;
         interface_obj * interface;
@@ -31,6 +34,7 @@
         unsigned int bufferSize;
 
         FILE * fp;
+        FILE * fp_record;
 
         struct sockaddr_in sserver;
         int sid;
@@ -42,6 +46,9 @@
     typedef struct snk_tracks_cfg {
 
         unsigned int fS;
+        int compact_mode;
+        int record_enabled;
+        char audio_record_path[1024];
         format_obj * format;
         interface_obj * interface;
 

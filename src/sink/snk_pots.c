@@ -28,6 +28,7 @@
     */
     
     #include <sink/snk_pots.h>
+    #include <math.h>
 
     snk_pots_obj * snk_pots_construct(const snk_pots_cfg * snk_pots_config, const msg_pots_cfg * msg_pots_config) {
 
@@ -39,6 +40,7 @@
 
         obj->nPots = msg_pots_config->nPots;
         obj->fS = snk_pots_config->fS;
+        obj->compact_mode = snk_pots_config->compact_mode;
         
         obj->format = format_clone(snk_pots_config->format);
         obj->interface = interface_clone(snk_pots_config->interface);
@@ -352,6 +354,7 @@
     void snk_pots_process_format_text_json(snk_pots_obj * obj) {
 
         unsigned int iPot;
+        unsigned int nEmitted;
 
         obj->buffer[0] = 0x00;
 
@@ -359,19 +362,36 @@
         sprintf(obj->buffer,"%s    \"timeStamp\": %llu,\n",obj->buffer,obj->in->timeStamp);
         sprintf(obj->buffer,"%s    \"src\": [\n",obj->buffer);
 
+        nEmitted = 0;
+
         for (iPot = 0; iPot < obj->nPots; iPot++) {
 
-            sprintf(obj->buffer,"%s        { \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f, \"E\": %1.3f }", obj->buffer, 
-                    obj->in->pots->array[iPot*4+0], obj->in->pots->array[iPot*4+1], obj->in->pots->array[iPot*4+2], obj->in->pots->array[iPot*4+3]);
+            float x = obj->in->pots->array[iPot*4+0];
+            float y = obj->in->pots->array[iPot*4+1];
+            float z = obj->in->pots->array[iPot*4+2];
+            float e = obj->in->pots->array[iPot*4+3];
 
-            if (iPot != (obj->nPots - 1)) {
-
-                sprintf(obj->buffer,"%s,",obj->buffer);
-
+            if (obj->compact_mode == 1 &&
+                fabsf(x) < 1.0e-6f &&
+                fabsf(y) < 1.0e-6f &&
+                fabsf(z) < 1.0e-6f &&
+                fabsf(e) < 1.0e-6f) {
+                continue;
             }
 
-            sprintf(obj->buffer,"%s\n",obj->buffer);
+            if (nEmitted > 0) {
+                sprintf(obj->buffer,"%s,\n",obj->buffer);
+            }
 
+            sprintf(obj->buffer,"%s        { \"x\": %1.3f, \"y\": %1.3f, \"z\": %1.3f, \"E\": %1.3f }", obj->buffer, 
+                    x, y, z, e);
+
+            nEmitted++;
+
+        }
+
+        if (nEmitted > 0) {
+            sprintf(obj->buffer,"%s\n",obj->buffer);
         }
         
         sprintf(obj->buffer,"%s    ]\n",obj->buffer);
@@ -395,6 +415,7 @@
         cfg = (snk_pots_cfg *) malloc(sizeof(snk_pots_cfg));
 
         cfg->fS = 0;
+        cfg->compact_mode = 0;
         cfg->format = (format_obj *) NULL;
         cfg->interface = (interface_obj *) NULL;
 
