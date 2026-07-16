@@ -150,3 +150,18 @@ build procedure.
 * F. Grondin, D. Létourneau, C. Godin, J.-S. Lauzon, J. Vincent, S. Michaud, S. Faucher, F. Michaud, [ODAS: Open embeddeD Audition System](https://www.frontiersin.org/article/10.3389/frobt.2022.854444), Frontiers in Robotics and AI, Volume 9, 2022 
 
 * F. Grondin and F. Michaud, [Lightweight and Optimized Sound Source Localization and Tracking Methods for Opened and Closed Microphone Array Configurations](https://arxiv.org/pdf/1812.00115), Robotics and Autonomous Systems, 2019 
+## Changes in a35b04e vs previous commit
+ demo/odaslive/main.cpp             |  37 ++++++-
+ demo/odaslive/parameters.c         | 102 ++++++++++++++++++-
+ include/odas/module/mod_resample.h |   6 +-
+ include/odas/python/python_zodas.h |   9 +-
+ include/odas/sink/snk_pots.h       |   2 +
+ include/odas/sink/snk_tracks.h     |   7 ++
+ src/module/mod_resample.c          |  54 ++++++----
+ src/module/mod_sst.c               |  56 +++++------
+ src/python/python_zodas.c          |  15 ++-
+ src/python/sync_zodas.py           |  28 ++++--
+ src/sink/snk_pots.c                |  33 ++++--
+ src/sink/snk_tracks.c              | 201 +++++++++++++++++++++++++++++++++++--
+ src/yamnet/yamnet_classifier.cpp   |  50 +--------
+ 13 files changed, 463 insertions(+), 137 deletions(-)
