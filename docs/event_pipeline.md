@@ -10,6 +10,16 @@ approach with a robust 6-hop rolling-majority vote, and adds a `.bin` sidecar
 mechanism so the Python simulator can reconstruct full-length audio from every
 confirmed event.
 
+### Current branch updates (makeshDev)
+
+Compared with the earlier fork state, this branch also includes:
+
+1. Proper TFLite output dequantization for `int8/uint8` output tensors.
+2. Confidence clamping to `[0, 1]` before storing `topk_history`.
+3. `raw.model_path` driven model selection (no hardcoded host paths).
+4. Track JSON hardening in `snk_tracks.c` (escaping + sidecar integrity behavior).
+5. YAMNet class-label sanitization before emission.
+
 ---
 
 ## Background and Motivation
@@ -156,7 +166,7 @@ evaluation.  The Python parser uses `timeStamp × 0.008` (hop counter ×
 
 ## Files Changed
 
-### C firmware — `z_odas_newbeamform/`
+### C firmware — `SonicWild_ODAS_Edge/`
 
 | File | Change summary |
 |---|---|
@@ -183,7 +193,7 @@ evaluation.  The Python parser uses `timeStamp × 0.008` (hop counter ×
 | `dump_track_buffers_to_json` | **Gate**: skip track if `topk_count < ROLLING_HOPS` or `ev.votes < min_event_votes`; emit `event_class_id`, `event_class_name`, `event_votes`, `event_avg_confidence`, **`event_max_confidence`**, `event_candidates`, `spectra_file` (absolute path), `topk_history`; **removed** legacy `bins[257]` and `fingerprint` fields |
 | *call site* (D6 gate) | Wrapped in `if (timeStamp % ROLLING_HOPS == 0)` — JSON emits at 48 ms cadence, 1:1 with YAMNet evaluations |
 
-### Config files — `sodas/`
+### Runtime config templates — `config/runtime/`
 
 Both `local_socket.cfg` and `local_socket1.cfg` gained two new `sst` keys:
 
@@ -192,7 +202,7 @@ sim_mode = 1;          # 0 = Pi, 1 = simulator (write .bin sidecars)
 min_event_votes = 4;   # 4 of 6 hops must agree before emitting event
 ```
 
-### Python simulator — `simulator/`
+### Python simulator — external `anamtya-tech/simulator`
 
 | File | Change summary |
 |---|---|
@@ -273,21 +283,16 @@ rolling window   = ~2.3 s  (6 × 384 ms)
 ## Running the Tests
 
 ```bash
-# Build (must pass before running)
-cd /home/azureuser/z_odas_newbeamform
+# Build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
-# Generate fresh event data
-cd build
-./bin/odaslive -c /home/azureuser/sodas/local_socket.cfg
-# (run for at least 3 s with a real audio source)
+# Prepare runtime cfg and run
+./scripts/setup_runtime.sh
+build/bin/odaslive -c ~/sodas/local_socket.cfg
 
-# Smoke-test (auto-detects latest session log)
-cd /home/azureuser/simulator
-python3 test_event_pipeline.py
-
-# Or point at a specific log and override the vote threshold:
-python3 test_event_pipeline.py /path/to/sst_session_live.json --min-event-votes 4
+# Optional: stream a pre-recorded 6-channel raw file into ODAS
+python3 scripts/vm_socket_emit.py --audio /path/to/render.raw --port 10000
 ```
 
 ### Test coverage
@@ -321,4 +326,4 @@ python3 test_event_pipeline.py /path/to/sst_session_live.json --min-event-votes 
 | Document | Contents |
 |---|---|
 | `docs/CONFIDENCE_INVESTIGATION.md` | Full investigation log (2026-03-01): why confidence is low on wildlife sounds, K=1 vs K=3 vs K=5 analysis, avg vs max confidence, all bug fixes, and next-step proposals |
-| `simulator/YAMNET_FINETUNING_README.md` | How to fine-tune YAMNet once a labelled dataset has been collected |
+| `anamtya-tech/simulator` | Dataset curation and downstream analysis pipeline |

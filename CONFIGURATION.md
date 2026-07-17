@@ -18,7 +18,7 @@ committed directly** to the repo.  Instead, parameterised templates live in
 ```bash
 ./scripts/setup_runtime.sh            # uses ODAS_DIR=$PWD, output → ~/sodas/
 # or override paths:
-ODAS_DIR=/opt/chatak-odas \
+ODAS_DIR=/opt/SonicWild_ODAS_Edge \
 CHATAK_GUI_DIR=/opt/ChatakGUI \
 ODAS_WORKING_DIR=/data/odas_runtime \
 ./scripts/setup_runtime.sh
@@ -60,13 +60,17 @@ pre-recorded `.raw` files.
 
 ```cfg
 sst: {
-    min_event_votes = 3;   # default: 3
+    min_event_votes = 4;   # code default: 4
 };
 ```
 
 Number of YAMNet inference frames that must agree on the top-K class before a
 track-end event is emitted.  Increasing this reduces false-positive events at
 the cost of missing short sounds.
+
+Notes:
+- Runtime templates may intentionally set `min_event_votes = 1` for dataset collection.
+- Valid range is `1..6`; invalid values fall back to `4`.
 
 ---
 
@@ -92,7 +96,7 @@ Directory where per-session output files are written:
 
 ```cfg
 raw: {
-    model_path = "/home/azureuser/z_odas_newbeamform/models";
+    model_path = "/abs/path/SonicWild_ODAS_Edge/models/elephant0";
 };
 ```
 

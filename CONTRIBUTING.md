@@ -4,18 +4,19 @@
 
 | Branch | Purpose |
 |--------|---------|
-| `main` | Stable — deployed to hardware |
-| `dev/*` | Feature branches |
+| `main` | Stable baseline |
+| `makeshDev` | Active integration branch for current fork |
+| `dev/*` | Optional short-lived feature branches |
 
-Merge flow: `dev/*` → PR → `main`.  All PRs must pass the **Build** CI check.
+Merge flow (recommended): `dev/*` → PR → `makeshDev` → periodic merge to `main`.
 
 ## Syncing with upstream ODAS
 
 ```bash
 git fetch upstream
-git checkout main
+git checkout makeshDev
 git merge upstream/master          # resolve conflicts in CMakeLists, src/module/
-git push origin main
+git push origin makeshDev
 ```
 
 Changes to the upstream core (SSL, SSS, beamformer) should be kept minimal to
@@ -24,6 +25,7 @@ make future merges tractable.  Chatak-specific code lives in:
 - `src/yamnet/` — YAMNet wrapper
 - `src/module/mod_sst.c` — SST event pipeline
 - `src/connector/con_chatak_id.c` — Chatak-ID connector
+- `src/sink/snk_tracks.c` — track JSON output and sidecar emission
 - `include/yamnet/`, `include/odas/*chatak*` — headers
 
 ## Commit style

@@ -1,4 +1,4 @@
-# Setup Guide — Chatak-ODAS
+# Setup Guide — SonicWild_ODAS_Edge
 
 Step-by-step instructions to build and run the repo from scratch on a new machine (x86-64 or Raspberry Pi / ARM).
 
@@ -95,8 +95,8 @@ pkg-config --modversion alsa
 ## 2. Clone the repo (with submodules)
 
 ```bash
-git clone --recurse-submodules https://github.com/anamtya-tech/chatak-odas.git
-cd chatak-odas
+git clone --recurse-submodules https://github.com/anamtya-tech/SonicWild_ODAS_Edge.git
+cd SonicWild_ODAS_Edge
 ```
 
 If you already cloned without `--recurse-submodules`, init the submodule manually:
@@ -141,7 +141,7 @@ another machine:
 ```bash
 # On the Pi, from another machine or USB stick:
 cp libtensorflowlite_c.so \
-    /path/to/chatak-odas/third_party/tflite/aarch64/libtensorflowlite_c.so
+    /path/to/SonicWild_ODAS_Edge/third_party/tflite/aarch64/libtensorflowlite_c.so
 ```
 
 ---
@@ -267,7 +267,7 @@ You can override the defaults:
 
 ```bash
 ./scripts/setup_runtime.sh \
-    --odas-dir /path/to/chatak-odas \   # where the repo lives (default: auto-detected)
+    --odas-dir /path/to/SonicWild_ODAS_Edge \   # where the repo lives (default: auto-detected)
     --output-dir /path/to/sodas         # where to write the .cfg files (default: ~/sodas)
 ```
 

@@ -1,4 +1,4 @@
-# Building the Chatak-ODAS fork
+# Building SonicWild_ODAS_Edge
 
 ## System requirements
 
@@ -9,30 +9,32 @@
 | libfftw3-dev | 3.x | FFT (SSL / SSS modules) |
 | libconfig-dev | 1.5 | `.cfg` file parsing |
 | libasound2-dev | 1.1 | ALSA audio capture |
+| libpulse-dev | 13+ | PulseAudio source support |
+| libjson-c-dev | 0.13+ | JSON messaging support |
 | TFLite runtime | 2.x | YAMNet inference (bundled) |
 
 Install on Debian / Ubuntu:
 
 ```bash
 sudo apt install -y cmake build-essential \
-    libfftw3-dev libconfig-dev libasound2-dev
+    libfftw3-dev libconfig-dev libasound2-dev \
+    libpulse-dev libjson-c-dev
 ```
 
 ---
 
 ## TensorFlow Lite dependency
 
-The TFLite C library is expected at `third_party/libtensorflowlite_c.so` (or the
-path set by `TFLITE_LIB` in `CMakeLists.txt`).
+On `aarch64/arm64`, CMake auto-detects and links the bundled runtime at:
 
-If you have a pre-built `.so` from the main system TF build:
+- `third_party/tflite/aarch64/libtensorflowlite_c.so`
 
-```bash
-ln -s /home/azureuser/tensorflow/libtensorflowlite_c.so.2.17.1 \
-      third_party/libtensorflowlite_c.so
-```
+On `x86-64`, CMake expects a system install under `/usr/local`:
 
-Otherwise build TFLite from source:
+- headers under `/usr/local/include/tensorflow/...`
+- library at `/usr/local/lib/libtensorflowlite_c.so`
+
+If needed, build TFLite C from source:
 
 ```bash
 git clone https://github.com/tensorflow/tensorflow.git tf_src
@@ -64,24 +66,13 @@ The resulting binary is `build/bin/odaslive`.
 
 ## YAMNet model
 
-`models/yamnet_core.tflite` (≈14 MB) is tracked via **Git LFS**.
+Model profiles are stored under `models/` (for example `models/elephant0/`,
+`models/elephant1/`, `models/pure/`).  Each profile directory must contain:
 
-To pull it after clone:
+- `yamnet_core.tflite`
+- `yamnet_class_map.csv`
 
-```bash
-git lfs pull
-```
-
-If Git LFS is not available, download the model manually:
-
-```bash
-# Example — replace with actual hosted URL when published
-wget -O models/yamnet_core.tflite \
-    https://storage.googleapis.com/anamtya/yamnet_core.tflite
-```
-
-`models/yamnet_class_map.csv` maps class indices to human-readable labels and
-**is** stored as a regular text file (no LFS needed).
+Set `raw.model_path` in your runtime cfg to the selected profile directory.
 
 ---
 
@@ -91,6 +82,15 @@ wget -O models/yamnet_core.tflite \
 build/bin/odaslive --help
 # Should print usage and supported config keys
 ```
+
+Optional runtime sanity check:
+
+```bash
+./scripts/setup_runtime.sh
+grep -n "model_path" ~/sodas/local_socket.cfg
+```
+
+Ensure `raw.model_path` points to a valid model profile directory.
 
 Quick sanity test with a pre-recorded file:
 

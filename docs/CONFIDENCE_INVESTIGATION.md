@@ -9,6 +9,12 @@ curator saved **0 samples** and the reported YAMNet confidence was low (~0.13).
 This document records the full investigation, the root causes found, the fixes
 applied, and proposals for moving forward.
 
+### Status in current branch
+
+The fixes described here are integrated in the current `makeshDev` codebase,
+including timestamp handling with `timeStamp`, absolute/robust spectra path
+handling, confidence reporting improvements, and JSON/output hardening.
+
 ---
 
 ## Experiment Setup
