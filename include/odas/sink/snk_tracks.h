@@ -36,6 +36,10 @@
         FILE * fp;
         FILE * fp_record;
 
+        char **record_backlog;
+        unsigned int record_backlog_start;
+        unsigned int record_backlog_count;
+
         struct sockaddr_in sserver;
         int sid;
 

@@ -341,6 +341,7 @@
         obj->in1 = (msg_pots_obj *) NULL;
         obj->in2 = (msg_targets_obj *) NULL;
         obj->out = (msg_tracks_obj *) NULL;
+        obj->startup_dummy_sent = 0;
 
         obj->enabled = 0;
         obj->enable_classifier_output = mod_sst_config->enable_classifier_output;
@@ -561,6 +562,23 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         
 
         if (msg_pots_isZero(obj->in1) == 0) {
+
+            if (obj->startup_dummy_sent == 0) {
+                tracks_zero(obj->out->tracks);
+                if (obj->out->tracks->nTracks > 0) {
+                    obj->out->tracks->ids[0] = 0;
+                    strcpy(obj->out->tracks->tags[0], SST_START_FLAG_TAG);
+                    obj->out->tracks->array[0] = SST_START_FLAG_POS;
+                    obj->out->tracks->array[1] = SST_START_FLAG_POS;
+                    obj->out->tracks->array[2] = SST_START_FLAG_POS;
+                    obj->out->tracks->activity[0] = SST_START_FLAG_ACTIVITY;
+                    strcpy(obj->out->tracks->class_name[0], SST_START_FLAG_CLASS);
+                    obj->out->tracks->class_conf[0] = SST_START_FLAG_CONF;
+                }
+                obj->out->timeStamp = obj->in2->timeStamp;
+                obj->startup_dummy_sent = 1;
+                return 0;
+            }
                 
            
 

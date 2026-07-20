@@ -13,6 +13,69 @@
     #include <errno.h>
     #include <time.h>
 
+    #define TRACKS_BACKLOG_CAPACITY 256
+
+    static void snk_tracks_backlog_enqueue(snk_tracks_obj *obj,
+                                           const char *payload,
+                                           unsigned int payloadSize) {
+
+        unsigned int slot;
+        char *copy;
+
+        if (obj == NULL || payload == NULL || payloadSize == 0) {
+            return;
+        }
+
+        if (obj->record_backlog == NULL) {
+            return;
+        }
+
+        if (obj->record_backlog_count == TRACKS_BACKLOG_CAPACITY) {
+            slot = obj->record_backlog_start;
+            free(obj->record_backlog[slot]);
+            obj->record_backlog[slot] = NULL;
+            obj->record_backlog_start = (obj->record_backlog_start + 1) % TRACKS_BACKLOG_CAPACITY;
+            obj->record_backlog_count--;
+        }
+
+        slot = (obj->record_backlog_start + obj->record_backlog_count) % TRACKS_BACKLOG_CAPACITY;
+        copy = (char *) malloc(payloadSize + 1);
+        if (copy == NULL) {
+            return;
+        }
+        memcpy(copy, payload, payloadSize);
+        copy[payloadSize] = '\0';
+        obj->record_backlog[slot] = copy;
+        obj->record_backlog_count++;
+
+    }
+
+    static void snk_tracks_backlog_flush(snk_tracks_obj *obj) {
+
+        if (obj == NULL || obj->fp_record == NULL || obj->record_backlog == NULL) {
+            return;
+        }
+
+        while (obj->record_backlog_count > 0) {
+            unsigned int slot;
+            char *payload;
+
+            slot = obj->record_backlog_start;
+            payload = obj->record_backlog[slot];
+            if (payload != NULL) {
+                fwrite(payload, sizeof(char), strlen(payload), obj->fp_record);
+                free(payload);
+                obj->record_backlog[slot] = NULL;
+            }
+
+            obj->record_backlog_start = (obj->record_backlog_start + 1) % TRACKS_BACKLOG_CAPACITY;
+            obj->record_backlog_count--;
+        }
+
+        fflush(obj->fp_record);
+
+    }
+
     static int starts_with_record_session(const char *name) {
 
         const char *livePrefix;
@@ -142,6 +205,7 @@
                 fprintf(stderr,
                         "Sink tracks: Recording tracks sidecar -> %s\n",
                         sidecarPath);
+                snk_tracks_backlog_flush(obj);
             }
         }
 
@@ -243,6 +307,13 @@
         obj->fp = (FILE *) NULL;
         obj->fp_record = (FILE *) NULL;
 
+        obj->record_backlog = (char **) malloc(sizeof(char *) * TRACKS_BACKLOG_CAPACITY);
+        obj->record_backlog_start = 0;
+        obj->record_backlog_count = 0;
+        if (obj->record_backlog != NULL) {
+            memset(obj->record_backlog, 0x00, sizeof(char *) * TRACKS_BACKLOG_CAPACITY);
+        }
+
         obj->buffer = (char *) malloc(sizeof(char) * 4096);
         memset(obj->buffer, 0x00, sizeof(char) * 4096);
         obj->bufferSize = 0;
@@ -254,6 +325,18 @@
     }
 
     void snk_tracks_destroy(snk_tracks_obj * obj) {
+
+        if (obj->record_backlog != NULL) {
+            unsigned int i;
+            for (i = 0; i < TRACKS_BACKLOG_CAPACITY; i++) {
+                if (obj->record_backlog[i] != NULL) {
+                    free(obj->record_backlog[i]);
+                    obj->record_backlog[i] = NULL;
+                }
+            }
+            free(obj->record_backlog);
+            obj->record_backlog = NULL;
+        }
 
         free((void *) obj->buffer);
 
@@ -430,9 +513,11 @@
 
         int rtnValue;
 
-        if (obj->in->timeStamp != 0) {
+        /* Try attaching sidecar before formatting/writing the current packet so
+         * early startup packets (including START_FLAG) are not missed. */
+        snk_tracks_try_open_record_sidecar(obj);
 
-            snk_tracks_try_open_record_sidecar(obj);
+        if (obj->in->timeStamp != 0) {
 
             switch(obj->format->type) {
 
@@ -493,8 +578,12 @@
             }
 
             if (obj->fp_record != NULL) {
+                snk_tracks_backlog_flush(obj);
                 fwrite(obj->buffer, sizeof(char), obj->bufferSize, obj->fp_record);
                 fflush(obj->fp_record);
+            }
+            else if (obj->record_enabled == 1 && obj->bufferSize > 0) {
+                snk_tracks_backlog_enqueue(obj, obj->buffer, obj->bufferSize);
             }
 
             rtnValue = 0;
@@ -561,6 +650,10 @@
             float y = obj->in->tracks->array[iTrack*3+1];
             float z = obj->in->tracks->array[iTrack*3+2];
             float activity = obj->in->tracks->activity[iTrack];
+            const char *cname = (obj->in->tracks->class_name &&
+                                 obj->in->tracks->class_name[iTrack][0])
+                                ? obj->in->tracks->class_name[iTrack] : "";
+            int is_start_flag = (strcmp(cname, "START_FLAG") == 0);
 
             if (obj->compact_mode == 1 &&
                 fabsf(x) < 1.0e-6f &&
@@ -570,13 +663,14 @@
                 continue;
             }
 
+            if (obj->in->tracks->ids[iTrack] == 0 && !is_start_flag) {
+                continue;
+            }
+
             if (nEmitted > 0) {
                 append_to_buffer(obj->buffer, 4096, ",\n");
             }
 
-            const char *cname = (obj->in->tracks->class_name &&
-                                 obj->in->tracks->class_name[iTrack][0])
-                                ? obj->in->tracks->class_name[iTrack] : "";
             float cconf = obj->in->tracks->class_conf
                           ? obj->in->tracks->class_conf[iTrack] : 0.0f;
 

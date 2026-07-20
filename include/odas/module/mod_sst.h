@@ -53,6 +53,13 @@
 #define TOPK 5
 #define ROLLING_HOPS 6
 
+// One-time first-frame START_FLAG payload for tracks output
+#define SST_START_FLAG_TAG "dynamic"
+#define SST_START_FLAG_CLASS "START_FLAG"
+#define SST_START_FLAG_POS 0.100f
+#define SST_START_FLAG_ACTIVITY 0.000f
+#define SST_START_FLAG_CONF 0.100f
+
 // Track spectra buffer struct
 typedef struct track_spectrum_obj {
     unsigned int id;                 // Track ID
@@ -161,6 +168,7 @@ typedef struct mod_sst_obj {
     msg_pots_obj * in1;
     msg_targets_obj * in2;
     msg_tracks_obj * out;
+    int startup_dummy_sent;
 
     char enabled;
     char enable_classifier_output;  // Flag to enable JSON output with classification data
