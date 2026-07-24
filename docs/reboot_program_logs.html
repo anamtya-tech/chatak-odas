@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reboot Programs and Log Reference</title>
+  <style>
+    :root {
+      --bg: #f4f6f3;
+      --card: #ffffff;
+      --ink: #1d2822;
+      --muted: #4f5d55;
+      --accent: #0e7a52;
+      --accent-soft: #d7efe5;
+      --line: #d4ded8;
+      --warning: #8f3d3d;
+      --code-bg: #eef5f0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Trebuchet MS", Verdana, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #dcefe7 0%, transparent 60%),
+        radial-gradient(1000px 500px at 110% 10%, #e7efe3 0%, transparent 60%),
+        var(--bg);
+      line-height: 1.5;
+    }
+
+    .hero {
+      background: linear-gradient(120deg, #10352b, #166346 55%, #238765);
+      color: #f3fff9;
+      padding: 56px 20px 42px;
+      border-bottom: 6px solid #0a5739;
+    }
+
+    .hero-inner {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.7rem, 3.1vw, 2.7rem);
+      line-height: 1.15;
+      letter-spacing: 0.2px;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #d8f3e7;
+      font-size: 1rem;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 18px auto 42px;
+      padding: 0 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 20px rgba(16, 53, 43, 0.08);
+      overflow: hidden;
+      animation: rise 380ms ease both;
+    }
+
+    .card h2 {
+      margin: 0;
+      padding: 14px 16px;
+      font-size: 1.15rem;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, #f7fcf9, #edf7f1);
+    }
+
+    .card .content {
+      padding: 14px 16px 16px;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.8rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-left: 8px;
+      color: #0d5038;
+      background: var(--accent-soft);
+      border: 1px solid #b9e3d1;
+      vertical-align: middle;
+    }
+
+    h3 {
+      margin: 10px 0 8px;
+      font-size: 1rem;
+      color: #10392b;
+    }
+
+    ul, ol { margin: 8px 0 10px 18px; }
+    li { margin: 4px 0; }
+
+    code {
+      background: var(--code-bg);
+      border: 1px solid #d8e8de;
+      border-radius: 6px;
+      padding: 1px 5px;
+      font-size: 0.93em;
+    }
+
+    pre {
+      margin: 8px 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #d6e5dc;
+      background: #f6fbf8;
+      overflow-x: auto;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .warn {
+      color: var(--warning);
+      font-weight: 600;
+    }
+
+    .footer {
+      max-width: 1000px;
+      margin: 0 auto 34px;
+      padding: 0 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    @keyframes rise {
+      from { transform: translateY(7px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media (max-width: 720px) {
+      .hero { padding-top: 42px; }
+      .card h2 { font-size: 1.06rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <h1>Reboot Programs and Log Reference</h1>
+      <p class="subtitle">Startup services, responsibilities, and log patterns for CHATAK/ODAS runtime.</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Reboot Startup Programs</h2>
+      <div class="content">
+        <h3>User Crontab <span class="badge">Helper Programs</span></h3>
+        <ul>
+          <li><code>@reboot record_odas.py</code>: Manages passive audio recording.</li>
+          <li><code>@reboot cd /mnt/CHATAK_VM && python3 cors_http_server.py</code>: Starts a browsable file server on flash storage.</li>
+          <li><code>@reboot /home/chatak/ChatakGUI/wifi_deamon.py</code>: Scans and connects to known Wi-Fi networks.</li>
+        </ul>
+
+        <h3>Sudo Crontab <span class="badge">USB + Mic Management</span></h3>
+        <ul>
+          <li><code>@reboot /usr/bin/python3 /home/chatak/ChatakGUI/asound_check.py</code>: Verifies ReSpeaker and updates ALSA config.</li>
+          <li><code>@reboot /usr/bin/python3 /home/chatak/ChatakGUI/usb_mount.py</code>: Ensures USB drive is mounted correctly.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>ClassifierLogs</h2>
+      <div class="content">
+        <p>JSON output from the SST module, primarily used for building and testing workflows.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>record_odas.py</h2>
+      <div class="content">
+        <p class="muted">Program: <code>@reboot record_odas.py</code> - passive recording manager.</p>
+        <h3>Log Categories</h3>
+        <ol>
+          <li>Startup and housekeeping (creates <code>cronDDMMYY_HHMM.log</code>, rotates old logs).</li>
+          <li>Process checks (ODAS running check with <code>odaslive</code> and <code>yammnetterminal_sensitive.cfg</code>).</li>
+          <li>Mount operations for <code>/mnt/CHATAK_VM</code>, including <code>fsck</code> and remount attempts.</li>
+          <li>Recording events using <code>record.txt</code> and <code>pause.txt</code>.</li>
+          <li>Sleep/wake cycle based on dynamic <code>wake.txt</code> and <code>sleep.txt</code>.</li>
+          <li>Error handling with timestamped exceptions.</li>
+        </ol>
+
+        <h3>Example Entries</h3>
+        <pre>2026-07-24 16:47:12 - Recording with ODAS to /mnt/CHATAK_VM/Passive_Audio
+2026-07-24 16:47:17 - CHATAK_VM not mounted. Skipping recording.
+2026-07-24 16:47:22 - Device is sleeping
+2026-07-24 16:47:25 - Mount failed after fsck: [error details]
+2026-07-24 16:47:30 - Process check failed: [error details]</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>wifi_deamon.py</h2>
+      <div class="content">
+        <p class="muted">Program: <code>@reboot wifi_deamon.py</code> - Wi-Fi connectivity manager.</p>
+        <h3>Log Categories</h3>
+        <ol>
+          <li>Startup and housekeeping (<code>wifi_daemonDDMMYY_HHMM.log</code> + rotation).</li>
+          <li>Connection status logs for connected/disconnected state.</li>
+          <li>Network scanning and visible SSID reporting via <code>nmcli</code>.</li>
+          <li>Profile management for known/added connections.</li>
+          <li>Connection attempts and outcomes.</li>
+          <li><code>wpa_supplicant.conf</code> read/parsing errors.</li>
+          <li>Daemon lifecycle stop events.</li>
+        </ol>
+
+        <h3>Example Entries</h3>
+        <pre>2026-07-24 16:51:02 - No Wi-Fi connection. Scanning available networks...
+2026-07-24 16:51:03 - Found networks: HomeNet, OfficeWiFi
+2026-07-24 16:51:03 - SSID HomeNet is in wpa_supplicant and visible.
+2026-07-24 16:51:03 - Profile for HomeNet already exists, skipping add.
+2026-07-24 16:51:03 - Attempting to bring up connection HomeNet...
+2026-07-24 16:51:05 - Connected to HomeNet
+2026-07-24 16:52:15 - Wi-Fi is connected to HomeNet</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>cors_http_server.py</h2>
+      <div class="content">
+        <p class="muted">Program: <code>@reboot cors_http_server.py</code> - serves <code>/mnt/CHATAK_VM</code> with CORS enabled.</p>
+        <h3>Log Categories</h3>
+        <ol>
+          <li>Startup bind message (<code>0.0.0.0:8001</code>).</li>
+          <li>Request handling by <code>CORSRequestHandler</code>.</li>
+          <li>Adds <code>Access-Control-Allow-Origin: *</code>.</li>
+          <li>MIME fixes for <code>.css</code> and <code>.js</code>.</li>
+          <li>Continuous lifecycle via <code>httpd.serve_forever()</code>.</li>
+        </ol>
+
+        <h3>Example Entries</h3>
+        <pre>Serving HTTP on 0.0.0.0 port 8001, serving only /mnt/CHATAK_VM directory...
+127.0.0.1 - - [24/Jul/2026 16:55:12] "GET /file.css HTTP/1.1" 200 -</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>asound_check.py</h2>
+      <div class="content">
+        <p class="muted">Program: <code>@reboot asound_check.py</code> - validates ALSA config for ReSpeaker.</p>
+        <h3>Log Categories</h3>
+        <ol>
+          <li>Startup and housekeeping (<code>sudocronDDMMYY_HHMM.log</code> + rotation).</li>
+          <li>Device detection using <code>arecord -l</code> and matching ReSpeaker/ArrayUAC.</li>
+          <li>Configuration update to <code>/etc/asound.conf</code> with <code>pcm.multi_capture</code>.</li>
+          <li>Exception logging for cleanup, detection, or update failure.</li>
+        </ol>
+
+        <h3>Example Entries</h3>
+        <pre>2026-07-24 16:55:12 - ReSpeaker device not found in arecord -l output.
+2026-07-24 16:55:18 - Updated /etc/asound.conf with hw:2,0
+2026-07-24 16:55:20 - Could not delete sudocron240726_1645.log: [error details]</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>usb_mount.py</h2>
+      <div class="content">
+        <p class="muted">Program: <code>@reboot usb_mount.py</code> - ensures <code>/mnt/CHATAK_VM</code> is mounted and usable.</p>
+        <h3>Log Categories</h3>
+        <ol>
+          <li>Startup and housekeeping (<code>sudocronDDMMYY_HHMM.log</code> + rotation).</li>
+          <li>Mount point creation/readiness for <code>/mnt/CHATAK_VM</code>.</li>
+          <li>Device discovery from <code>blkid /dev/sda1</code> (UUID and TYPE parsing).</li>
+          <li><code>/etc/fstab</code> add/check logic.</li>
+          <li>Mount execution via <code>mount -a</code>.</li>
+          <li>Exception logging across all mount pipeline steps.</li>
+        </ol>
+
+        <h3>Example Entries</h3>
+        <pre>2026-07-24 16:58:12 - Created mount point /mnt/CHATAK_VM
+2026-07-24 16:58:13 - blkid output: /dev/sda1: UUID="abcd-1234" TYPE="ext4"
+2026-07-24 16:58:14 - Adding entry to /etc/fstab...
+2026-07-24 16:58:15 - USB mounted at /mnt/CHATAK_VM
+2026-07-24 16:58:16 - Could not parse UUID or TYPE from blkid output.</pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    This reference captures startup cleanup, network and storage readiness, recording lifecycle, and timestamped error visibility across reboot-managed services.
+  </footer>
+</body>
+</html>
