@@ -4,10 +4,407 @@
     */
     
     #include <module/mod_sst.h>
+    #include <ctype.h>
+    #include <time.h>
 
     #define NBINS 10
 
     unsigned long long session_start = 0;
+
+    static double mod_sst_elapsed_seconds(const struct timespec * start, const struct timespec * end) {
+
+        return ((double) (end->tv_sec - start->tv_sec)) +
+               (((double) (end->tv_nsec - start->tv_nsec)) / 1000000000.0);
+
+    }
+
+    static void mod_sst_profile_printf(const mod_sst_obj * obj) {
+
+        double frame_count;
+        double track_mgmt_ms;
+        double predict_ms;
+        double coherence_ms;
+        double mixture_assign_ms;
+        double update_ms;
+        double activity_classify_ms;
+        double transitions_dynamic_ms;
+        double output_copy_ms;
+        double total_ms;
+
+        if ((obj->profile_enabled == 0) || (obj->profile_frames == 0)) {
+            return;
+        }
+
+        frame_count = (double) obj->profile_frames;
+        track_mgmt_ms = 1000.0 * obj->profile_track_mgmt_s / frame_count;
+        predict_ms = 1000.0 * obj->profile_predict_s / frame_count;
+        coherence_ms = 1000.0 * obj->profile_coherence_s / frame_count;
+        mixture_assign_ms = 1000.0 * obj->profile_mixture_assign_s / frame_count;
+        update_ms = 1000.0 * obj->profile_update_s / frame_count;
+        activity_classify_ms = 1000.0 * obj->profile_activity_classify_s / frame_count;
+        transitions_dynamic_ms = 1000.0 * obj->profile_transitions_dynamic_s / frame_count;
+        output_copy_ms = 1000.0 * obj->profile_output_copy_s / frame_count;
+        total_ms = track_mgmt_ms + predict_ms + coherence_ms + mixture_assign_ms +
+                   update_ms + activity_classify_ms + transitions_dynamic_ms + output_copy_ms;
+
+        printf("+--------------------------------------------------+\n");
+        printf("|           SST Stage Timing (avg / frame)         |\n");
+        printf("+--------------------------------------------------+\n");
+        printf("| Frames profiled............. %12llu |\n", obj->profile_frames);
+        printf("| Track Management............ %12.3f ms |\n", track_mgmt_ms);
+        printf("| Predict..................... %12.3f ms |\n", predict_ms);
+        printf("| Coherence................... %12.3f ms |\n", coherence_ms);
+        printf("| Mixture + Assignment........ %12.3f ms |\n", mixture_assign_ms);
+        printf("| Update...................... %12.3f ms |\n", update_ms);
+        printf("| Activity + Classify......... %12.3f ms |\n", activity_classify_ms);
+        printf("| Transitions + Dynamic....... %12.3f ms |\n", transitions_dynamic_ms);
+        printf("| Output Copy................. %12.3f ms |\n", output_copy_ms);
+        printf("+--------------------------------------------------+\n");
+        printf("| Full SST Frame.............. %12.3f ms |\n", total_ms);
+        printf("+--------------------------------------------------+\n");
+
+    }
+
+    static void mod_sst_trim_inplace(char * str) {
+
+        char * start;
+        char * end;
+
+        start = str;
+        while ((*start != '\0') && isspace((unsigned char) *start)) {
+            start++;
+        }
+
+        if (start != str) {
+            memmove(str, start, strlen(start) + 1);
+        }
+
+        end = str + strlen(str);
+        while ((end > str) && isspace((unsigned char) *(end - 1))) {
+            end--;
+        }
+        *end = '\0';
+
+    }
+
+    static unsigned int mod_sst_parse_uint_list(const char * value, unsigned int * out, unsigned int maxCount) {
+
+        unsigned int count;
+        const char * p;
+
+        count = 0;
+        p = value;
+
+        while ((*p != '\0') && (count < maxCount)) {
+
+            if (isdigit((unsigned char) *p) != 0) {
+                char * endPtr;
+                unsigned long parsed;
+
+                parsed = strtoul(p, &endPtr, 10);
+                if (endPtr == p) {
+                    p++;
+                    continue;
+                }
+
+                out[count] = (unsigned int) parsed;
+                count++;
+                p = endPtr;
+            }
+            else {
+                p++;
+            }
+
+        }
+
+        return count;
+
+    }
+
+    static time_t mod_sst_get_file_mod_time(const char * path) {
+
+        struct stat st;
+        if ((path == NULL) || (path[0] == '\0')) {
+            return 0;
+        }
+
+        if (stat(path, &st) == 0) {
+            return st.st_mtime;
+        }
+
+        return 0;
+
+    }
+
+    static void mod_sst_set_gmm_weight(gaussians_1d_obj * gmm, float weight) {
+
+        gaussian_1d_obj * gaussian;
+
+        if ((gmm == NULL) || (gmm->nSignals == 0) || (gmm->array[0] == NULL) || !(weight > 0.0f)) {
+            return;
+        }
+
+        gaussian = gmm->array[0];
+        gaussian->weight = weight;
+        gaussian->scaleFactor = weight / (gaussian->sigma_x * powf(2.0f * M_PI, 0.5f));
+
+    }
+
+    static void mod_sst_set_gmm_sigma2(gaussians_1d_obj * gmm, float sigma2) {
+
+        gaussian_1d_obj * gaussian;
+
+        if ((gmm == NULL) || (gmm->nSignals == 0) || (gmm->array[0] == NULL) || !(sigma2 > 0.0f)) {
+            return;
+        }
+
+        gaussian = gmm->array[0];
+        gaussian->sigma_x = sqrtf(sigma2);
+        gaussian->scaleFactor = gaussian->weight / (gaussian->sigma_x * powf(2.0f * M_PI, 0.5f));
+
+    }
+
+    static void mod_sst_set_sigmaR2(kalman2kalman_obj * k2k,
+                                    kalman2coherence_obj * k2c,
+                                    particle2particle_obj * p2p,
+                                    particle2coherence_obj * p2c,
+                                    float sigmaR2) {
+
+        float sigmaR;
+
+        if (!(sigmaR2 > 0.0f)) {
+            return;
+        }
+
+        sigmaR = sqrtf(sigmaR2);
+
+        if (k2k != NULL) {
+            k2k->sigmaR = sigmaR;
+            if (k2k->R != NULL) {
+                k2k->R->array[0*(k2k->R->nCols)+0] = sigmaR2;
+                k2k->R->array[1*(k2k->R->nCols)+1] = sigmaR2;
+                k2k->R->array[2*(k2k->R->nCols)+2] = sigmaR2;
+            }
+        }
+
+        if ((k2c != NULL) && (k2c->sigma_s != NULL)) {
+            k2c->sigma_s->array[0*(k2c->sigma_s->nCols)+0] = sigmaR2;
+            k2c->sigma_s->array[1*(k2c->sigma_s->nCols)+1] = sigmaR2;
+            k2c->sigma_s->array[2*(k2c->sigma_s->nCols)+2] = sigmaR2;
+            matrix_inv(k2c->sigma_s_inv, k2c->sigma_s);
+        }
+
+        if (p2p != NULL) {
+            p2p->sigmaR = sigmaR;
+            p2p->expScale = 1.0f / (sigmaR*sigmaR*sigmaR * powf(2*M_PI,(3.0f/2.0f)));
+            p2p->expFactor = -1.0f / (2.0f * sigmaR * sigmaR);
+        }
+
+        if (p2c != NULL) {
+            p2c->sigmaR = sigmaR;
+            p2c->expScale = 1.0f / (sigmaR*sigmaR*sigmaR * powf(2*M_PI,(3.0f/2.0f)));
+            p2c->expFactor = -1.0f / (2.0f * sigmaR * sigmaR);
+        }
+
+    }
+
+    static void mod_sst_apply_live_overrides(mod_sst_obj * obj, const char * path) {
+
+        FILE * file;
+        char line[512];
+
+        file = fopen(path, "r");
+        if (file == NULL) {
+            printf("sst hot-reload: failed to open '%s'\n", path);
+            return;
+        }
+
+        while (fgets(line, sizeof(line), file) != NULL) {
+
+            char * keyStart;
+            char * keyEnd;
+            char * valueStart;
+            char * valueEnd;
+            char key[128];
+            char value[384];
+
+            mod_sst_trim_inplace(line);
+            if ((line[0] == '\0') || (line[0] == '#') || (line[0] == ';')) {
+                continue;
+            }
+
+            keyStart = line;
+            keyEnd = keyStart;
+            while ((*keyEnd != '\0') && (!isspace((unsigned char) *keyEnd)) && (*keyEnd != '=') && (*keyEnd != ':')) {
+                keyEnd++;
+            }
+
+            if (keyEnd == keyStart) {
+                continue;
+            }
+
+            valueStart = keyEnd;
+            while ((*valueStart != '\0') && (isspace((unsigned char) *valueStart) || (*valueStart == '=') || (*valueStart == ':'))) {
+                valueStart++;
+            }
+            if (*valueStart == '\0') {
+                continue;
+            }
+
+            valueEnd = valueStart + strlen(valueStart);
+            while ((valueEnd > valueStart) && isspace((unsigned char) *(valueEnd - 1))) {
+                valueEnd--;
+            }
+
+            {
+                size_t keyLen;
+                size_t valueLen;
+
+                keyLen = (size_t) (keyEnd - keyStart);
+                if (keyLen >= sizeof(key)) {
+                    keyLen = sizeof(key) - 1;
+                }
+                memcpy(key, keyStart, keyLen);
+                key[keyLen] = '\0';
+
+                valueLen = (size_t) (valueEnd - valueStart);
+                if (valueLen >= sizeof(value)) {
+                    valueLen = sizeof(value) - 1;
+                }
+                memcpy(value, valueStart, valueLen);
+                value[valueLen] = '\0';
+            }
+
+            if (strcmp(key, "active.mu") == 0) {
+                if ((obj->mixture2mixture != NULL) &&
+                    (obj->mixture2mixture->active != NULL) &&
+                    (obj->mixture2mixture->active->nSignals > 0) &&
+                    (obj->mixture2mixture->active->array[0] != NULL)) {
+                    obj->mixture2mixture->active->array[0]->mu_x = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "inactive.mu") == 0) {
+                if ((obj->mixture2mixture != NULL) &&
+                    (obj->mixture2mixture->inactive != NULL) &&
+                    (obj->mixture2mixture->inactive->nSignals > 0) &&
+                    (obj->mixture2mixture->inactive->array[0] != NULL)) {
+                    obj->mixture2mixture->inactive->array[0]->mu_x = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "active.weight") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    mod_sst_set_gmm_weight(obj->mixture2mixture->active, (float) atof(value));
+                }
+            }
+            else if (strcmp(key, "active.sigma2") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    mod_sst_set_gmm_sigma2(obj->mixture2mixture->active, (float) atof(value));
+                }
+            }
+            else if (strcmp(key, "inactive.weight") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    mod_sst_set_gmm_weight(obj->mixture2mixture->inactive, (float) atof(value));
+                }
+            }
+            else if (strcmp(key, "inactive.sigma2") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    mod_sst_set_gmm_sigma2(obj->mixture2mixture->inactive, (float) atof(value));
+                }
+            }
+            else if (strcmp(key, "Pfalse") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    obj->mixture2mixture->Pfalse = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "Pnew") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    obj->mixture2mixture->Pnew = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "Ptrack") == 0) {
+                if (obj->mixture2mixture != NULL) {
+                    obj->mixture2mixture->Ptrack = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "sigmaR2_prob") == 0) {
+                mod_sst_set_sigmaR2(obj->kalman2kalman_prob,
+                                    obj->kalman2coherence_prob,
+                                    obj->particle2particle_prob,
+                                    obj->particle2coherence_prob,
+                                    (float) atof(value));
+            }
+            else if (strcmp(key, "sigmaR2_active") == 0) {
+                mod_sst_set_sigmaR2(obj->kalman2kalman_active,
+                                    obj->kalman2coherence_active,
+                                    obj->particle2particle_active,
+                                    obj->particle2coherence_active,
+                                    (float) atof(value));
+            }
+            else if (strcmp(key, "sigmaR2_target") == 0) {
+                mod_sst_set_sigmaR2(obj->kalman2kalman_target,
+                                    obj->kalman2coherence_target,
+                                    obj->particle2particle_target,
+                                    obj->particle2coherence_target,
+                                    (float) atof(value));
+            }
+            else if (strcmp(key, "theta_new") == 0) {
+                obj->theta_new = (float) atof(value);
+            }
+            else if (strcmp(key, "N_prob") == 0) {
+                obj->N_prob = (unsigned int) atoi(value);
+            }
+            else if (strcmp(key, "theta_prob") == 0) {
+                obj->theta_prob = (float) atof(value);
+            }
+            else if (strcmp(key, "theta_inactive") == 0) {
+                obj->theta_inactive = (float) atof(value);
+            }
+            else if (strcmp(key, "min_event_votes") == 0) {
+                int votes;
+                votes = atoi(value);
+                if (votes < 1) {
+                    votes = 1;
+                }
+                if (votes > ROLLING_HOPS) {
+                    votes = ROLLING_HOPS;
+                }
+                obj->min_event_votes = votes;
+            }
+            else if (strcmp(key, "N_inactive") == 0) {
+                unsigned int parsed[256];
+                unsigned int nParsed;
+                unsigned int i;
+
+                nParsed = mod_sst_parse_uint_list(value, parsed, obj->nTracksMax);
+                if ((nParsed > 0) && (obj->N_inactive != NULL)) {
+                    for (i = 0; i < obj->nTracksMax; i++) {
+                        obj->N_inactive[i] = parsed[(i < nParsed) ? i : (nParsed - 1)];
+                    }
+                }
+            }
+
+        }
+
+        fclose(file);
+
+    }
+
+    static void mod_sst_reload_if_needed(mod_sst_obj * obj) {
+
+        time_t modTime;
+
+        if (obj->sstParametersPath[0] == '\0') {
+            return;
+        }
+
+        modTime = mod_sst_get_file_mod_time(obj->sstParametersPath);
+        if ((modTime != 0) && (modTime > obj->lastSstParamsUpdateTime)) {
+            mod_sst_apply_live_overrides(obj, obj->sstParametersPath);
+            obj->lastSstParamsUpdateTime = modTime;
+            printf("sst hot-reload: applied parameters from %s\n", obj->sstParametersPath);
+        }
+
+    }
   
     mod_sst_obj * mod_sst_construct(const mod_sst_cfg * mod_sst_config, const mod_ssl_cfg * mod_ssl_config, const msg_pots_cfg * msg_pots_config, const msg_targets_cfg * msg_targets_config, const msg_tracks_cfg * msg_tracks_config,const msg_spectra_cfg * msg_spectra_config) {
 
@@ -343,6 +740,17 @@
         obj->out = (msg_tracks_obj *) NULL;
         obj->startup_dummy_sent = 0;
 
+        obj->profile_frames = 0;
+        obj->profile_track_mgmt_s = 0.0;
+        obj->profile_predict_s = 0.0;
+        obj->profile_coherence_s = 0.0;
+        obj->profile_mixture_assign_s = 0.0;
+        obj->profile_update_s = 0.0;
+        obj->profile_activity_classify_s = 0.0;
+        obj->profile_transitions_dynamic_s = 0.0;
+        obj->profile_output_copy_s = 0.0;
+        obj->profile_enabled = (getenv("ODAS_SST_PROFILE") != NULL) ? 0x01 : 0x00;
+
         obj->enabled = 0;
         obj->enable_classifier_output = mod_sst_config->enable_classifier_output;
         
@@ -389,6 +797,10 @@
             exit(EXIT_FAILURE);
         }
 
+        strncpy(obj->sstParametersPath, mod_sst_config->sstParametersPath, sizeof(obj->sstParametersPath) - 1);
+        obj->sstParametersPath[sizeof(obj->sstParametersPath) - 1] = '\0';
+        obj->lastSstParamsUpdateTime = mod_sst_get_file_mod_time(obj->sstParametersPath);
+
         return obj;
 
     }
@@ -396,6 +808,8 @@
 void mod_sst_destroy(mod_sst_obj * obj) {
 
         unsigned int iTrackMax;
+
+    mod_sst_profile_printf(obj);
 
         for (iTrackMax = 0; iTrackMax <= obj->nTracksMax; iTrackMax++) {
 
@@ -547,6 +961,15 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         int rtnValue;
         char targetFound;
         unsigned int nFramesPerTrack = 96 ;
+        struct timespec t_stage_start, t_stage_end;
+        double t_profile_track_mgmt_s;
+        double t_profile_predict_s;
+        double t_profile_coherence_s;
+        double t_profile_mixture_assign_s;
+        double t_profile_update_s;
+        double t_profile_activity_classify_s;
+        double t_profile_transitions_dynamic_s;
+        double t_profile_output_copy_s;
         
         // Safety check
         if (obj == NULL || obj->in1 == NULL || obj->in2 == NULL) {
@@ -559,6 +982,8 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
             exit(EXIT_FAILURE);
 
         }
+
+        mod_sst_reload_if_needed(obj);
         
 
         if (msg_pots_isZero(obj->in1) == 0) {
@@ -583,6 +1008,19 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
            
 
             if (obj->enabled == 1) {
+
+                t_profile_track_mgmt_s = 0.0;
+                t_profile_predict_s = 0.0;
+                t_profile_coherence_s = 0.0;
+                t_profile_mixture_assign_s = 0.0;
+                t_profile_update_s = 0.0;
+                t_profile_activity_classify_s = 0.0;
+                t_profile_transitions_dynamic_s = 0.0;
+                t_profile_output_copy_s = 0.0;
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
 
                 // +----------------------------------------------------------------------+
                 // | Update tracked sources from target sources                           |
@@ -707,6 +1145,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
 
                 }
 
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_track_mgmt_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
+
 
                 // +----------------------------------------------------------------------+
                 // | Predict                                                              |
@@ -802,6 +1246,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
 
                     }
 
+                }
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_predict_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
                 }
 
             
@@ -922,6 +1372,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
                     }
 
                 }
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_coherence_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
                 
               
              
@@ -985,6 +1441,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
                     if (bestTrack != UINT_MAX && bestScore > obj->theta_prob) {
                         push_pot_to_track_buffer(obj, iPot, bestTrack, obj->ids[bestTrack], nFramesPerTrack, 1);
                     }
+                }
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_mixture_assign_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
                 }
                                             
                                             
@@ -1107,6 +1569,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
 
                 }
 
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_update_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
+
                      
                  // After Update loop — OUTSIDE
                  // Export JSON packets if flag is enabled
@@ -1202,6 +1670,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
                     }
 
                 }        
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_activity_classify_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
 
                 // +----------------------------------------------------------------------+
                 // | Transitions                                                          |
@@ -1378,6 +1852,12 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
 
                 }
 
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                    t_profile_transitions_dynamic_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_stage_start);
+                }
+
                 // +----------------------------------------------------------------------+
                 // | Copy in tracking                                                     |
                 // +----------------------------------------------------------------------+
@@ -1460,6 +1940,20 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
                     }
 
                 }
+
+                                        if (obj->profile_enabled == 0x01) {
+                                            clock_gettime(CLOCK_MONOTONIC, &t_stage_end);
+                                            t_profile_output_copy_s += mod_sst_elapsed_seconds(&t_stage_start, &t_stage_end);
+                                            obj->profile_frames += 1;
+                                            obj->profile_track_mgmt_s += t_profile_track_mgmt_s;
+                                            obj->profile_predict_s += t_profile_predict_s;
+                                            obj->profile_coherence_s += t_profile_coherence_s;
+                                            obj->profile_mixture_assign_s += t_profile_mixture_assign_s;
+                                            obj->profile_update_s += t_profile_update_s;
+                                            obj->profile_activity_classify_s += t_profile_activity_classify_s;
+                                            obj->profile_transitions_dynamic_s += t_profile_transitions_dynamic_s;
+                                            obj->profile_output_copy_s += t_profile_output_copy_s;
+                                        }
         }
             else {
 
@@ -1550,6 +2044,7 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         cfg->epsilon = 0.0f;
         cfg->sigmaR_prob = 0.0f;
         cfg->sigmaR_active = 0.0f;
+        cfg->sigmaR_target = 0.0f;
         cfg->active_gmm = (gaussians_1d_obj *) NULL;
         cfg->inactive_gmm = (gaussians_1d_obj *) NULL;
         cfg->Pfalse = 0.0f;
@@ -1565,6 +2060,7 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         cfg->classifier_log_dir = NULL;     // Will be set from config
         cfg->sim_mode = 0;                  /* Default: Pi/edge mode — no .bin sidecars */
         cfg->min_event_votes = 4;           /* Default: 4/6 hops must agree to emit event */
+        cfg->sstParametersPath[0] = '\0';
 
         return cfg;
 
@@ -1614,6 +2110,7 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         printf("epsilon = %f\n", cfg->epsilon);
         printf("sigmaR_prob = %f\n", cfg->sigmaR_prob);
         printf("sigmaR_active = %f\n", cfg->sigmaR_active);
+        printf("sigmaR_target = %f\n", cfg->sigmaR_target);
 
         printf("active_gmm:\n");
         gaussians_1d_printf(cfg->active_gmm);
@@ -1641,6 +2138,7 @@ static void classify_track_hop(mod_sst_obj *obj, unsigned int iTrack,
         printf(")\n");  
 
         printf("theta_inactive = %f\n", cfg->theta_inactive);      
+        printf("sstParametersPath = %s\n", cfg->sstParametersPath);
 
     }
 

@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <time.h>
 #include <json-c/json.h>
 #include <limits.h>
 
@@ -170,6 +171,17 @@ typedef struct mod_sst_obj {
     msg_tracks_obj * out;
     int startup_dummy_sent;
 
+    unsigned long long profile_frames;
+    double profile_track_mgmt_s;
+    double profile_predict_s;
+    double profile_coherence_s;
+    double profile_mixture_assign_s;
+    double profile_update_s;
+    double profile_activity_classify_s;
+    double profile_transitions_dynamic_s;
+    double profile_output_copy_s;
+    char profile_enabled;
+
     char enabled;
     char enable_classifier_output;  // Flag to enable JSON output with classification data
     char * classifier_log_dir;      // Directory path for classifier output files
@@ -206,6 +218,9 @@ typedef struct mod_sst_obj {
     int   sim_mode;
     int   min_event_votes;
     char **last_patch_path;        /* [iTrack] → malloc'd char[512] */
+
+    char sstParametersPath[512];
+    time_t lastSstParamsUpdateTime;
 
 } mod_sst_obj;
 
@@ -279,6 +294,8 @@ typedef struct mod_sst_cfg {
      */
     int sim_mode;          /* 0 = Pi (no .bin), 1 = Simulator (write .bin) */
     int min_event_votes;   /* 1–6, default 4 */
+
+    char sstParametersPath[512];
 
 } mod_sst_cfg;
 

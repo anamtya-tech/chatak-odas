@@ -1,5 +1,192 @@
 
     #include "parameters.h"
+    #include <ctype.h>
+
+    static void trim_inplace(char * str) {
+
+        char * start = str;
+        char * end;
+
+        while ((*start != '\0') && isspace((unsigned char) *start)) {
+            start++;
+        }
+
+        if (start != str) {
+            memmove(str, start, strlen(start) + 1);
+        }
+
+        end = str + strlen(str);
+        while ((end > str) && isspace((unsigned char) *(end - 1))) {
+            end--;
+        }
+        *end = '\0';
+
+    }
+
+    static unsigned int parse_uint_list(const char * value, unsigned int * out, unsigned int maxCount) {
+
+        unsigned int count;
+        const char * p;
+
+        count = 0;
+        p = value;
+
+        while ((*p != '\0') && (count < maxCount)) {
+
+            if (isdigit((unsigned char) *p) != 0) {
+                char * endPtr;
+                unsigned long parsed;
+
+                parsed = strtoul(p, &endPtr, 10);
+                if (endPtr == p) {
+                    p++;
+                    continue;
+                }
+
+                out[count] = (unsigned int) parsed;
+                count++;
+                p = endPtr;
+            }
+            else {
+                p++;
+            }
+
+        }
+
+        return count;
+
+    }
+
+    static void parameters_apply_sst_overrides(mod_sst_cfg * cfg, const char * sstParametersPath) {
+
+        FILE * file;
+        char line[512];
+
+        file = fopen(sstParametersPath, "r");
+        if (file == NULL) {
+            printf("raw.sst_parameters: could not open '%s'\n", sstParametersPath);
+            return;
+        }
+
+        while (fgets(line, sizeof(line), file) != NULL) {
+
+            char * keyStart;
+            char * keyEnd;
+            char * valueStart;
+            char * valueEnd;
+            char key[128];
+            char value[384];
+
+            trim_inplace(line);
+            if ((line[0] == '\0') || (line[0] == '#') || (line[0] == ';')) {
+                continue;
+            }
+
+            keyStart = line;
+            keyEnd = keyStart;
+            while ((*keyEnd != '\0') && (!isspace((unsigned char) *keyEnd)) && (*keyEnd != '=') && (*keyEnd != ':')) {
+                keyEnd++;
+            }
+
+            if (keyEnd == keyStart) {
+                continue;
+            }
+
+            valueStart = keyEnd;
+            while ((*valueStart != '\0') && (isspace((unsigned char) *valueStart) || (*valueStart == '=') || (*valueStart == ':'))) {
+                valueStart++;
+            }
+            if (*valueStart == '\0') {
+                continue;
+            }
+
+            valueEnd = valueStart + strlen(valueStart);
+            while ((valueEnd > valueStart) && isspace((unsigned char) *(valueEnd - 1))) {
+                valueEnd--;
+            }
+
+            {
+                size_t keyLen;
+                size_t valueLen;
+
+                keyLen = (size_t) (keyEnd - keyStart);
+                if (keyLen >= sizeof(key)) {
+                    keyLen = sizeof(key) - 1;
+                }
+                memcpy(key, keyStart, keyLen);
+                key[keyLen] = '\0';
+
+                valueLen = (size_t) (valueEnd - valueStart);
+                if (valueLen >= sizeof(value)) {
+                    valueLen = sizeof(value) - 1;
+                }
+                memcpy(value, valueStart, valueLen);
+                value[valueLen] = '\0';
+            }
+
+            if (strcmp(key, "active.mu") == 0) {
+                if ((cfg->active_gmm != NULL) && (cfg->active_gmm->nSignals > 0) && (cfg->active_gmm->array[0] != NULL)) {
+                    cfg->active_gmm->array[0]->mu_x = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "inactive.mu") == 0) {
+                if ((cfg->inactive_gmm != NULL) && (cfg->inactive_gmm->nSignals > 0) && (cfg->inactive_gmm->array[0] != NULL)) {
+                    cfg->inactive_gmm->array[0]->mu_x = (float) atof(value);
+                }
+            }
+            else if (strcmp(key, "Pfalse") == 0) {
+                cfg->Pfalse = (float) atof(value);
+            }
+            else if (strcmp(key, "Pnew") == 0) {
+                cfg->Pnew = (float) atof(value);
+            }
+            else if (strcmp(key, "Ptrack") == 0) {
+                cfg->Ptrack = (float) atof(value);
+            }
+            else if (strcmp(key, "theta_new") == 0) {
+                cfg->theta_new = (float) atof(value);
+            }
+            else if (strcmp(key, "N_prob") == 0) {
+                cfg->N_prob = (unsigned int) atoi(value);
+            }
+            else if (strcmp(key, "theta_prob") == 0) {
+                cfg->theta_prob = (float) atof(value);
+            }
+            else if (strcmp(key, "theta_inactive") == 0) {
+                cfg->theta_inactive = (float) atof(value);
+            }
+            else if (strcmp(key, "min_event_votes") == 0) {
+                int votes;
+                votes = atoi(value);
+                if (votes < 1) {
+                    votes = 1;
+                }
+                if (votes > 6) {
+                    votes = 6;
+                }
+                cfg->min_event_votes = votes;
+            }
+            else if (strcmp(key, "kalman.sigmaQ") == 0) {
+                cfg->sigmaQ = (float) atof(value);
+            }
+            else if (strcmp(key, "N_inactive") == 0) {
+                unsigned int parsed[256];
+                unsigned int nParsed;
+                unsigned int i;
+
+                nParsed = parse_uint_list(value, parsed, cfg->nTracksMax);
+                if ((nParsed > 0) && (cfg->N_inactive != NULL)) {
+                    for (i = 0; i < cfg->nTracksMax; i++) {
+                        cfg->N_inactive[i] = parsed[(i < nParsed) ? i : (nParsed - 1)];
+                    }
+                }
+            }
+
+        }
+
+        fclose(file);
+
+    }
 
     /* Optional-int lookup: returns defaultValue when path is absent. */
     int parameters_lookup_int_default(const char * file, const char * path, int defaultValue) {
@@ -1322,6 +1509,20 @@
             if (cfg->min_event_votes < 1 || cfg->min_event_votes > 6) {
                 printf("sst.min_event_votes: Invalid value (use 1–6). Defaulting to 4.\n");
                 cfg->min_event_votes = 4;
+            }
+
+        // +----------------------------------------------------------+
+        // | Optional SST parameter override file                     |
+        // | Path: raw.sst_parameters                                 |
+        // +----------------------------------------------------------+
+
+            if (parameters_exists(fileConfig, "raw.sst_parameters")) {
+                char * sstParametersPath;
+                sstParametersPath = parameters_lookup_string(fileConfig, "raw.sst_parameters");
+                strncpy(cfg->sstParametersPath, sstParametersPath, sizeof(cfg->sstParametersPath) - 1);
+                cfg->sstParametersPath[sizeof(cfg->sstParametersPath) - 1] = '\0';
+                parameters_apply_sst_overrides(cfg, sstParametersPath);
+                free((void *) sstParametersPath);
             }
 
         return cfg;

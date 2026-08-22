@@ -2,6 +2,57 @@
     
     #include <module/mod_ssl.h>
 
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <time.h>
+
+        static double mod_ssl_elapsed_seconds(const struct timespec * start, const struct timespec * end) {
+
+            return ((double) (end->tv_sec - start->tv_sec)) +
+                   (((double) (end->tv_nsec - start->tv_nsec)) / 1000000000.0);
+
+        }
+
+        static void mod_ssl_profile_printf(const mod_ssl_obj * obj) {
+
+            double frame_count;
+            double pre_xcorr_ms;
+            double gcc_phat_xcorr_ms;
+            double srp_accum_ms;
+            double peak_map_ms;
+            double freq_at_peak_ms;
+            double format_doa_ms;
+            double total_ms;
+
+            if ((obj->profile_enabled == 0) || (obj->profile_frames == 0)) {
+                return;
+            }
+
+            frame_count = (double) obj->profile_frames;
+            pre_xcorr_ms = 1000.0 * obj->profile_pre_xcorr_s / frame_count;
+            gcc_phat_xcorr_ms = 1000.0 * obj->profile_gcc_phat_xcorr_s / frame_count;
+            srp_accum_ms = 1000.0 * obj->profile_srp_accum_s / frame_count;
+            peak_map_ms = 1000.0 * obj->profile_peak_map_s / frame_count;
+            freq_at_peak_ms = 1000.0 * obj->profile_freq_at_peak_s / frame_count;
+            format_doa_ms = 1000.0 * obj->profile_format_doa_s / frame_count;
+            total_ms = pre_xcorr_ms + gcc_phat_xcorr_ms + srp_accum_ms + peak_map_ms + freq_at_peak_ms + format_doa_ms;
+
+            printf("+--------------------------------------------------+\n");
+            printf("|           SSL Stage Timing (avg / frame)         |\n");
+            printf("+--------------------------------------------------+\n");
+            printf("| Frames profiled............. %12llu |\n", obj->profile_frames);
+            printf("| Pre-XCorr................... %12.3f ms |\n", pre_xcorr_ms);
+            printf("| GCC-PHAT XCorr.............. %12.3f ms |\n", gcc_phat_xcorr_ms);
+            printf("| SRP Accumulation............ %12.3f ms |\n", srp_accum_ms);
+            printf("| Peak Extraction + Mapping... %12.3f ms |\n", peak_map_ms);
+            printf("| Freq at Peak................ %12.3f ms |\n", freq_at_peak_ms);
+            printf("| Format DOA Angles........... %12.3f ms |\n", format_doa_ms);
+            printf("+--------------------------------------------------+\n");
+            printf("| Full SSL Frame.............. %12.3f ms |\n", total_ms);
+            printf("+--------------------------------------------------+\n");
+
+        }
+
     mod_ssl_obj * mod_ssl_construct(const mod_ssl_cfg * mod_ssl_config, const msg_spectra_cfg * msg_spectra_config, const msg_pots_cfg * msg_pots_config) {
 
         mod_ssl_obj * obj;
@@ -88,6 +139,15 @@
         obj->in1 = (msg_chatak_id_obj*) NULL;
         obj->out = (msg_pots_obj *) NULL;
 
+        obj->profile_frames = 0;
+        obj->profile_pre_xcorr_s = 0.0;
+        obj->profile_gcc_phat_xcorr_s = 0.0;
+        obj->profile_srp_accum_s = 0.0;
+        obj->profile_peak_map_s = 0.0;
+        obj->profile_freq_at_peak_s = 0.0;
+        obj->profile_format_doa_s = 0.0;
+        obj->profile_enabled = (getenv("ODAS_SSL_PROFILE") != NULL) ? 0x01 : 0x00;
+
         obj->enabled = 0;
       
         return obj;
@@ -98,6 +158,8 @@
 
         unsigned int iLevel;
         unsigned int iPot;
+
+            mod_ssl_profile_printf(obj);
 
         scans_destroy(obj->scans);
 
@@ -143,11 +205,27 @@
         
         int debug = 0;
         struct timespec t_start, t_end;
-        double t_diff_ms;
+        double t_profile_pre_xcorr_s;
+        double t_profile_gcc_phat_xcorr_s;
+        double t_profile_srp_accum_s;
+        double t_profile_peak_map_s;
+        double t_profile_freq_at_peak_s;
+        double t_profile_format_doa_s;
 
         if (msg_spectra_isZero(obj->in) == 0) {
 
             if (obj->enabled == 1) {
+
+                t_profile_pre_xcorr_s = 0.0;
+                t_profile_gcc_phat_xcorr_s = 0.0;
+                t_profile_srp_accum_s = 0.0;
+                t_profile_peak_map_s = 0.0;
+                t_profile_freq_at_peak_s = 0.0;
+                t_profile_format_doa_s = 0.0;
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_start);
+                }
                     
 
                 freq2freq_phasor_process(obj->freq2freq_phasor, 
@@ -186,6 +264,12 @@
                 freq2freq_interpolate_process(obj->freq2freq_interpolate,
                                               obj->products,
                                               obj->productsInterp);
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_end);
+                    t_profile_pre_xcorr_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                    clock_gettime(CLOCK_MONOTONIC, &t_start);
+                }
                                               
 
 
@@ -193,6 +277,11 @@
                                    obj->productsInterp, 
                                    obj->scans->pairs,
                                    obj->xcorrs);
+
+                if (obj->profile_enabled == 0x01) {
+                    clock_gettime(CLOCK_MONOTONIC, &t_end);
+                    t_profile_gcc_phat_xcorr_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                }
                                    
 
                 for (iPot = 0; iPot < obj->nPots; iPot++) {
@@ -209,6 +298,10 @@
                     }
 
                     maxIndex = 0;
+
+                    if (obj->profile_enabled == 0x01) {
+                        clock_gettime(CLOCK_MONOTONIC, &t_start);
+                    }
 
                     for (iLevel = 0; iLevel < obj->nLevels; iLevel++) {
 
@@ -241,12 +334,24 @@
                         }
                        
                     }
+
+                    if (obj->profile_enabled == 0x01) {
+                        clock_gettime(CLOCK_MONOTONIC, &t_end);
+                        t_profile_srp_accum_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                        clock_gettime(CLOCK_MONOTONIC, &t_start);
+                    }
                     
 
                     obj->pots->array[iPot * 4 + 0] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 0];
                     obj->pots->array[iPot * 4 + 1] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 1];
                     obj->pots->array[iPot * 4 + 2] = obj->scans->points[obj->nLevels-1]->array[maxIndex * 3 + 2];
                     obj->pots->array[iPot * 4 + 3] = maxValue * ((float) obj->interpRate);
+
+                    if (obj->profile_enabled == 0x01) {
+                        clock_gettime(CLOCK_MONOTONIC, &t_end);
+                        t_profile_peak_map_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                        clock_gettime(CLOCK_MONOTONIC, &t_start);
+                    }
                   
                    
                     float x = obj->pots->array[iPot * 4 + 0];
@@ -264,8 +369,19 @@
                             obj->pots->spec_at_peak[iPot],                       // output buffer for final spectrum
                             x,y,z
                         );
+
+                        if (obj->profile_enabled == 0x01) {
+                            clock_gettime(CLOCK_MONOTONIC, &t_end);
+                            t_profile_freq_at_peak_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                            clock_gettime(CLOCK_MONOTONIC, &t_start);
+                        }
                         
                         pots_copy(obj->out->pots, obj->pots);
+
+                        if (obj->profile_enabled == 0x01) {
+                            clock_gettime(CLOCK_MONOTONIC, &t_end);
+                            t_profile_format_doa_s += mod_ssl_elapsed_seconds(&t_start, &t_end);
+                        }
 
                         //printf("after xcoor call in ssl");
                         //pots_printf(obj->pots);
@@ -303,6 +419,16 @@
 
     
                 memcpy(obj->out->pots->array, obj->pots->array, sizeof(float) * obj->pots->nPots * 4);
+
+                    if (obj->profile_enabled == 0x01) {
+                        obj->profile_frames += 1;
+                        obj->profile_pre_xcorr_s += t_profile_pre_xcorr_s;
+                        obj->profile_gcc_phat_xcorr_s += t_profile_gcc_phat_xcorr_s;
+                        obj->profile_srp_accum_s += t_profile_srp_accum_s;
+                        obj->profile_peak_map_s += t_profile_peak_map_s;
+                        obj->profile_freq_at_peak_s += t_profile_freq_at_peak_s;
+                        obj->profile_format_doa_s += t_profile_format_doa_s;
+                    }
   
     
             }

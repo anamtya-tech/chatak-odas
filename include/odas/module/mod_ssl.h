@@ -73,7 +73,14 @@
         msg_spectra_obj * in;
         msg_chatak_id_obj * in1;
         msg_pots_obj * out;
-
+        unsigned long long profile_frames;
+        double profile_pre_xcorr_s;
+        double profile_gcc_phat_xcorr_s;
+        double profile_srp_accum_s;
+        double profile_peak_map_s;
+        double profile_freq_at_peak_s;
+        double profile_format_doa_s;
+        char profile_enabled;
         char enabled;
 
     } mod_ssl_obj;
