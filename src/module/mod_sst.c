@@ -208,6 +208,22 @@
 
     }
 
+    static void mod_sst_set_sigmaQ(kalman2kalman_obj * k2k, float sigmaQ) {
+
+        float sigmaQ2;
+
+        if ((k2k == NULL) || (k2k->Q == NULL) || !(sigmaQ > 0.0f)) {
+            return;
+        }
+
+        sigmaQ2 = sigmaQ * sigmaQ;
+        k2k->sigmaQ = sigmaQ;
+        k2k->Q->array[3*(k2k->Q->nCols)+3] = sigmaQ2;
+        k2k->Q->array[4*(k2k->Q->nCols)+4] = sigmaQ2;
+        k2k->Q->array[5*(k2k->Q->nCols)+5] = sigmaQ2;
+
+    }
+
     static void mod_sst_apply_live_overrides(mod_sst_obj * obj, const char * path) {
 
         FILE * file;
@@ -346,6 +362,11 @@
                                     obj->particle2particle_target,
                                     obj->particle2coherence_target,
                                     (float) atof(value));
+            }
+            else if (strcmp(key, "kalman.sigmaQ") == 0) {
+                mod_sst_set_sigmaQ(obj->kalman2kalman_prob, (float) atof(value));
+                mod_sst_set_sigmaQ(obj->kalman2kalman_active, (float) atof(value));
+                mod_sst_set_sigmaQ(obj->kalman2kalman_target, (float) atof(value));
             }
             else if (strcmp(key, "theta_new") == 0) {
                 obj->theta_new = (float) atof(value);
