@@ -821,6 +821,9 @@
         strncpy(obj->sstParametersPath, mod_sst_config->sstParametersPath, sizeof(obj->sstParametersPath) - 1);
         obj->sstParametersPath[sizeof(obj->sstParametersPath) - 1] = '\0';
         obj->lastSstParamsUpdateTime = mod_sst_get_file_mod_time(obj->sstParametersPath);
+        if (obj->sstParametersPath[0] != '\0') {
+            mod_sst_apply_live_overrides(obj, obj->sstParametersPath);
+        }
 
         return obj;
 
