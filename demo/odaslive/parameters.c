@@ -23,6 +23,51 @@
 
     }
 
+    static void parameters_resolve_record_path(char * destination,
+                                               size_t destinationSize,
+                                               const char * rootPath) {
+
+        const char * metadataPaths[] = {
+            "/home/chatak/ChatakGUI/config/project_name.txt",
+            "/home/chatak/ChatakGUI/config/sublocation.txt"
+        };
+        char component[256];
+        FILE * metadataFile;
+        size_t pathLength;
+        unsigned int index;
+
+        snprintf(destination, destinationSize, "%s", rootPath);
+
+        for (index = 0; index < sizeof(metadataPaths) / sizeof(metadataPaths[0]); index++) {
+            metadataFile = fopen(metadataPaths[index], "r");
+            if ((metadataFile == NULL) ||
+                (fgets(component, sizeof(component), metadataFile) == NULL)) {
+                if (metadataFile != NULL) {
+                    fclose(metadataFile);
+                }
+                continue;
+            }
+            fclose(metadataFile);
+
+            trim_inplace(component);
+            if (component[0] == '\0') {
+                continue;
+            }
+
+            pathLength = strlen(destination);
+            if ((pathLength + 1 + strlen(component) + 1) > destinationSize) {
+                printf("Recording path is too long; using '%s'\n", destination);
+                break;
+            }
+
+            if ((pathLength > 0) && (destination[pathLength - 1] != '/')) {
+                strcat(destination, "/");
+            }
+            strcat(destination, component);
+        }
+
+    }
+
     static unsigned int parse_uint_list(const char * value, unsigned int * out, unsigned int maxCount) {
 
         unsigned int count;
@@ -623,12 +668,18 @@
 
             strncpy(cfg->liveRecordPath, tmpPath, sizeof(cfg->liveRecordPath) - 1);
             cfg->liveRecordPath[sizeof(cfg->liveRecordPath) - 1] = '\0';
+            parameters_resolve_record_path(cfg->liveRecordPath,
+                                           sizeof(cfg->liveRecordPath),
+                                           tmpPath);
             free((void *) tmpPath);
 
             if (parameters_exists(fileConfig, "raw.passiveRecordPath")) {
                 tmpPath = parameters_lookup_string(fileConfig, "raw.passiveRecordPath");
                 strncpy(cfg->passiveRecordPath, tmpPath, sizeof(cfg->passiveRecordPath) - 1);
                 cfg->passiveRecordPath[sizeof(cfg->passiveRecordPath) - 1] = '\0';
+                parameters_resolve_record_path(cfg->passiveRecordPath,
+                                               sizeof(cfg->passiveRecordPath),
+                                               tmpPath);
                 free((void *) tmpPath);
             }
             else {
@@ -1598,8 +1649,9 @@
             else {
                 tmpStr2 = parameters_lookup_string(fileConfig, "raw.audioRecordPath");
             }
-            strncpy(cfg->audio_record_path, tmpStr2, sizeof(cfg->audio_record_path) - 1);
-            cfg->audio_record_path[sizeof(cfg->audio_record_path) - 1] = '\0';
+            parameters_resolve_record_path(cfg->audio_record_path,
+                                           sizeof(cfg->audio_record_path),
+                                           tmpStr2);
             free((void *) tmpStr2);
 
         // +----------------------------------------------------------+

@@ -8,11 +8,20 @@ import shutil
 
 
 def create_session_folder(base_path, session_prefix):
-    now = datetime.now()
-    timestamp = now.strftime(f"{session_prefix}_%Y-%m-%d_%H-%M")
-    folder_path = os.path.join(base_path, timestamp)
-    os.makedirs(folder_path, exist_ok=True)
-    return folder_path, timestamp
+    os.makedirs(base_path, exist_ok=True)
+
+    for suffix in range(1000):
+        timestamp = datetime.now().strftime(f"{session_prefix}_%Y-%m-%d_%H-%M-%S")
+        if suffix:
+            timestamp = f"{timestamp}_{suffix}"
+        folder_path = os.path.join(base_path, timestamp)
+        try:
+            os.mkdir(folder_path)
+            return folder_path, timestamp
+        except FileExistsError:
+            continue
+
+    raise RuntimeError("Unable to create a unique recording session directory")
 
 def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, config_file_path, parent_pid):
     print("ZODAS Sync started...")
@@ -23,11 +32,9 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, c
     print(f" Record Path     : {audioRecordPath}")
     print(f" Parent PID      : {parent_pid}")
 
-    # Create readable timestamped folder
+    # Create a unique readable timestamped folder without reusing an existing session.
+    full_path, folder_name = create_session_folder(audioRecordPath, session_prefix)
     now = datetime.now()
-    folder_name = now.strftime(f"{session_prefix}_%Y-%m-%d_%H-%M")
-    full_path = os.path.join(audioRecordPath, folder_name)
-    os.makedirs(full_path, exist_ok=True)
 
     # File naming
     base_filename = folder_name
