@@ -7,6 +7,14 @@ import io
 import shutil
 
 
+def read_mac_id():
+    try:
+        with open("/home/chatak/ChatakGUI/config/mac_id.txt", "r") as mac_file:
+            return mac_file.readline().strip()
+    except OSError:
+        return ""
+
+
 def create_session_folder(base_path, session_prefix):
     os.makedirs(base_path, exist_ok=True)
 
@@ -38,9 +46,11 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, c
 
     # File naming
     base_filename = folder_name
-    audio_file_path = os.path.join(full_path, f"{base_filename}.raw")
-    timestamp_file_path = os.path.join(full_path, f"{base_filename}.txt")
-    session_cfg_path = os.path.join(full_path, f"{base_filename}.cfg")
+    mac_id = read_mac_id()
+    file_prefix = f"{mac_id}_" if mac_id else ""
+    audio_file_path = os.path.join(full_path, f"{file_prefix}{base_filename}.raw")
+    timestamp_file_path = os.path.join(full_path, f"{file_prefix}{base_filename}.txt")
+    session_cfg_path = os.path.join(full_path, f"{file_prefix}{base_filename}.cfg")
 
     # Copy active ODAS config used for this run into the session folder
     try:
@@ -51,7 +61,7 @@ def sync_zodas(fS, hopSize, nBits, nChannels, audioRecordPath, session_prefix, c
 
     # ✅ Copy latlong.txt into the new folder with timestamped name
     src_latlong = "/home/chatak/ChatakGUI/config/latlong.txt"
-    dest_latlong = os.path.join(full_path, f"{session_prefix}_{now.strftime('%Y-%m-%d_%H-%M')}_latlong.txt")
+    dest_latlong = os.path.join(full_path, f"{file_prefix}{session_prefix}_{now.strftime('%Y-%m-%d_%H-%M')}_latlong.txt")
     try:
         shutil.copy(src_latlong, dest_latlong)
         print(f"Copied latlong.txt to {dest_latlong}")

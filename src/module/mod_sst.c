@@ -5,11 +5,58 @@
     
     #include <module/mod_sst.h>
     #include <ctype.h>
+    #include <stdio.h>
+    #include <string.h>
     #include <time.h>
 
     #define NBINS 10
 
     unsigned long long session_start = 0;
+
+    static void mod_sst_read_mac_id(char *macId, size_t macIdSize) {
+
+        FILE *file;
+        char line[128];
+        char *start;
+        char *end;
+
+        macId[0] = '\0';
+        file = fopen("/home/chatak/ChatakGUI/config/mac_id.txt", "r");
+        if (file == NULL || fgets(line, sizeof(line), file) == NULL) {
+            if (file != NULL) {
+                fclose(file);
+            }
+            return;
+        }
+        fclose(file);
+
+        start = line;
+        while (*start != '\0' && isspace((unsigned char) *start)) {
+            start++;
+        }
+        end = start + strlen(start);
+        while (end > start && isspace((unsigned char) *(end - 1))) {
+            end--;
+        }
+        *end = '\0';
+        snprintf(macId, macIdSize, "%s", start);
+
+    }
+
+    static void mod_sst_prefix_filename(char *destination,
+                                         size_t destinationSize,
+                                         const char *filename) {
+
+        char macId[128];
+
+        mod_sst_read_mac_id(macId, sizeof(macId));
+        if (macId[0] == '\0') {
+            snprintf(destination, destinationSize, "%s", filename);
+        } else {
+            snprintf(destination, destinationSize, "%s_%s", macId, filename);
+        }
+
+    }
 
     static double mod_sst_elapsed_seconds(const struct timespec * start, const struct timespec * end) {
 
@@ -2232,10 +2279,15 @@ static void classify_track_hop(mod_sst_obj *obj,
 
     /* ---- Optional .bin sidecar (sim_mode) --------------------------------- */
     if (obj->sim_mode == 1) {
+          char filename[256];
+          char unprefixedFilename[256];
+
         ensure_log_dir_exists(obj->classifier_log_dir);
+          snprintf(unprefixedFilename, sizeof(unprefixedFilename),
+                      "patch_%llu_%llu.bin", trackID, obj->in1->timeStamp);
+          mod_sst_prefix_filename(filename, sizeof(filename), unprefixedFilename);
         snprintf(obj->last_patch_path[iTrack], 512,
-                 "%s/patch_%llu_%llu.bin",
-                 obj->classifier_log_dir, trackID, obj->in1->timeStamp);
+                      "%s/%s", obj->classifier_log_dir, filename);
         FILE *bin_fp = fopen(obj->last_patch_path[iTrack], "wb");
         if (bin_fp) {
             fwrite(patch, sizeof(float), 96 * YAMNET_BINS, bin_fp);
@@ -2824,7 +2876,11 @@ void dump_track_buffers_to_json(mod_sst_obj *obj, const char *basename, unsigned
     strftime(ts_str, sizeof(ts_str), "%Y%m%d_%H%M%S", tm_info);
 
     char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "%s/%s_%s.json", obj->classifier_log_dir, basename, ts_str);
+    char filename[256];
+    char unprefixedFilename[256];
+    snprintf(unprefixedFilename, sizeof(unprefixedFilename), "%s_%s.json", basename, ts_str);
+    mod_sst_prefix_filename(filename, sizeof(filename), unprefixedFilename);
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", obj->classifier_log_dir, filename);
 
     FILE *fp = fopen(fullpath, "a");
     if (!fp) {
@@ -2856,7 +2912,11 @@ void log_classification_event(mod_sst_obj *obj, unsigned int iTrack, unsigned lo
     strftime(ts_str, sizeof(ts_str), "%Y%m%d_%H%M%S", tm_info);
 
     char fullpath[512];
-    //snprintf(fullpath, sizeof(fullpath), "%s/sst_classify_events_%s.json", LOG_DIR, ts_str);
+    char filename[256];
+    char unprefixedFilename[256];
+    snprintf(unprefixedFilename, sizeof(unprefixedFilename), "sst_classify_events_%s.json", ts_str);
+    mod_sst_prefix_filename(filename, sizeof(filename), unprefixedFilename);
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", obj->classifier_log_dir, filename);
 
     FILE *fp = fopen(fullpath, "a");
     if (!fp) {
@@ -2898,8 +2958,11 @@ void dump_track_fingerprint_only(mod_sst_obj *obj,
     strftime(ts_str, sizeof(ts_str), "%Y%m%d_%H%M%S", tm_info);
 
     char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "%s/%s_fingerprint_%s.json",
-             obj->classifier_log_dir, basename, ts_str);
+    char filename[256];
+    char unprefixedFilename[256];
+    snprintf(unprefixedFilename, sizeof(unprefixedFilename), "%s_fingerprint_%s.json", basename, ts_str);
+    mod_sst_prefix_filename(filename, sizeof(filename), unprefixedFilename);
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", obj->classifier_log_dir, filename);
 
     FILE *fp = fopen(fullpath, "a");
     if (!fp) {

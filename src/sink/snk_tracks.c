@@ -5,6 +5,7 @@
     */
     
     #include <sink/snk_tracks.h>
+    #include <ctype.h>
     #include <sys/time.h>
     #include <stdarg.h>
     #include <math.h>
@@ -14,6 +15,36 @@
     #include <time.h>
 
     #define TRACKS_BACKLOG_CAPACITY 256
+
+    static void snk_tracks_read_mac_id(char *macId, size_t macIdSize) {
+
+        FILE *file;
+        char line[128];
+        char *start;
+        char *end;
+
+        macId[0] = '\0';
+        file = fopen("/home/chatak/ChatakGUI/config/mac_id.txt", "r");
+        if (file == NULL || fgets(line, sizeof(line), file) == NULL) {
+            if (file != NULL) {
+                fclose(file);
+            }
+            return;
+        }
+        fclose(file);
+
+        start = line;
+        while (*start != '\0' && isspace((unsigned char) *start)) {
+            start++;
+        }
+        end = start + strlen(start);
+        while (end > start && isspace((unsigned char) *(end - 1))) {
+            end--;
+        }
+        *end = '\0';
+        snprintf(macId, macIdSize, "%s", start);
+
+    }
 
     static void snk_tracks_backlog_enqueue(snk_tracks_obj *obj,
                                            const char *payload,
@@ -117,6 +148,7 @@
 
             char candidatePath[1536];
             char candidateRawPath[1792];
+            char macId[128];
             struct stat st;
             struct stat stRaw;
             time_t now;
@@ -139,11 +171,14 @@
              * Attach only to an actively recording session:
              * expect <session>/<session>.raw to exist and be freshly updated.
              */
+            snk_tracks_read_mac_id(macId, sizeof(macId));
             snprintf(candidateRawPath,
                      sizeof(candidateRawPath),
-                     "%s/%s/%s.raw",
+                     "%s/%s/%s%s%s.raw",
                      audioRecordPath,
                      entry->d_name,
+                     macId[0] != '\0' ? macId : "",
+                     macId[0] != '\0' ? "_" : "",
                      entry->d_name);
 
             if (stat(candidateRawPath, &stRaw) != 0 || !S_ISREG(stRaw.st_mode)) {
@@ -168,12 +203,18 @@
             return -1;
         }
 
-        snprintf(outPath,
+        {
+            char macId[128];
+            snk_tracks_read_mac_id(macId, sizeof(macId));
+            snprintf(outPath,
                  outPathSize,
-                 "%s/%s/%s_tracks.json",
+                 "%s/%s/%s%s%s_tracks.json",
                  audioRecordPath,
                  bestName,
+                 macId[0] != '\0' ? macId : "",
+                 macId[0] != '\0' ? "_" : "",
                  bestName);
+        }
 
         return 0;
 
